@@ -1,0 +1,23 @@
+GET http://localhost:8000/
+
+###
+
+GET http://localhost:8000/api/users/
+
+###
+
+GET http://localhost:8000/api/users/kr79yajnv1c7unqtqhi0j5ds
+
+###
+
+POST http://localhost:8000/api/users
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "role": "admin",
+  "is_active": true
+}
+
+###
