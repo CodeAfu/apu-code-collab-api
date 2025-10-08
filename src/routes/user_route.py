@@ -1,108 +1,136 @@
 import os
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends
-from sqlmodel import Session, select
+from fastapi import status, APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 
-from src.models.api_response import APIResponse, ErrorResponse, SuccessResponse
-from src.models.user import CreateUserRequest, User
-from src.utils.db import get_session
+from src.models.api_exception import APIException
+from src.models.user import CreateUserRequest
+from src.services.user_service import UserService, get_user_service
 
 load_dotenv()
 env = os.getenv("PYTHON_ENV")
 
-user_router = APIRouter(
-    prefix="/api/users"
-)
+user_router = APIRouter()
 
 @user_router.get("/")
-async def get_users(session: Session = Depends(get_session)) -> APIResponse:
+async def get_users(user_service: UserService = Depends(get_user_service)) -> JSONResponse:
     if env != "development":
-        return ErrorResponse(
-            status=500,
-            error="Invalid Permission",
-            message="You do not have permissions to access this endpoint",
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "Invalid Permission",
+                "message": "You do not have permissions to access this endpoint",
+            }
         )
 
     # TODO: Add proper role validation
     
     try:
-        users = session.exec(select(User)).all()
+        users = user_service.get_users()
         
-        return SuccessResponse(
-            status=200,
-            data=[user.model_dump(exclude_none=True) for user in users],
-            message="Users retrieved successfully"
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "data": [user.model_dump(mode="json", exclude_none=True) for user in users],
+                "message": "Users retrieved successfully"
+            },
         )
     except Exception as e:
-        return ErrorResponse(
-            status=500,
+        return APIException(
             error=str(e),
-            message="Failed to retrieve users"
+            message="Unknown error occurred"
         )
 
 
 @user_router.get("/{user_id}", response_model_exclude_none=True)
 # @limiter.limit("1/second")
-async def get_user(user_id: str, session: Session = Depends(get_session)) -> APIResponse:
+async def get_user(user_id: str, user_service: UserService = Depends(get_user_service)) -> JSONResponse:
     try:
-        user = session.exec(
-            select(User).where(User.id == user_id)
-        ).first()
-
+        user = user_service.get_user(user_id)
         if not user:
-            return ErrorResponse(
-                status=400,
+            raise APIException(
+                status_code=status.HTTP_404_NOT_FOUND,
                 error="User does not exist",
                 message="User does not exist"
             )
         
-        return SuccessResponse(
-            status=200,
-            data=user.model_dump(exclude_none=True),
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": user.model_dump(mode="json", exclude_none=True),
+                "message": "User retrieved successfully",
+            }
         )
+    except APIException:
+        raise
     except Exception as e:
-        return ErrorResponse(
-            status=500,
-            message="Internal Error",
-            error=str(e)
+        return APIException(
+            error=str(e),
+            message="Unknown error occurred"
         )
-
+            
 
 @user_router.post("", response_model_exclude_none=True)
-async def create_user(request: CreateUserRequest, session: Session = Depends(get_session)) -> APIResponse:
+async def create_user(request: CreateUserRequest,user_service: UserService = Depends(get_user_service)) -> JSONResponse:
     try:
-        existing_user = session.exec(
-            select(User).where((User.email == request.email))
-        ).first()
+        email_is_unique = user_service.is_unique_email(request.email)
 
-        if existing_user:
-            return ErrorResponse(
-                status=409,
-                error="Email or name already exists",
-                message="Email or name already exists",
+        if not email_is_unique:
+            raise APIException(
+                status_code=status.HTTP_409_CONFLICT,
+                error= "Email is already already registered",
+                message= "Email is already already registered",
             )
         
-        user = User(
-            name=request.name,
-            email=request.email,
-            student_id=request.student_id,
-            role=request.role,
-            is_active=request.is_active
-        )
+        user = user_service.create_user(request);
 
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-
-        return SuccessResponse(
-            status=201,
-            data=user.model_dump(exclude_none=True),
-            message="User created successfully"
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "data": user.model_dump(mode="json", exclude_none=True),
+                "message": "User created successfully"
+            }
         )
+    except APIException:
+        raise
     except Exception as e:
-        return ErrorResponse(
-            status=500,
-            message="Failed to create user",
-            error=str(e)
+        return APIException(
+            error=str(e),
+            message="Unknown error occurred"
+        )
+
+@user_router.delete("/{user_id}", response_model_exclude_none=True)
+async def delete_user(user_id: str, user_service: UserService = Depends(get_user_service)):
+    try:
+        deleted = user_service.delete_user(user_id)
+        
+        if not deleted:
+            raise APIException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "USER_NOT_FOUND",
+                    "message": "User does not exist"
+                }
+            )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": None,
+                "message": "User deleted successfully"
+            }
+        )
+    except APIException:
+        raise
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to delete user"
+            }
         )
 

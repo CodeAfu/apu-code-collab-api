@@ -1,23 +1,28 @@
-GET http://localhost:8000/
+@host = http://localhost:8000
+@users = /api/users
+
+GET {{host}}/health
 
 ###
 
-GET http://localhost:8000/api/users/
+GET {{host}}{{users}}/
 
 ###
 
-GET http://localhost:8000/api/users/kr79yajnv1c7unqtqhi0j5ds
+GET {{host}}{{users}}/kr79yajnv1c7unqtqhi0j5ds
 
 ###
 
-POST http://localhost:8000/api/users
+POST {{host}}{{users}}
 Content-Type: application/json
 
 {
-  "name": "John Doe",
-  "email": "john@example.com",
+  "name": "Ducc",
+  "email": "sfdds@example.com",
   "role": "admin",
   "is_active": true
 }
 
 ###
+
+DELETE {{host}}{{users}}/zlglnroc0f4dpjy8tmry22xf
