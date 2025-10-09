@@ -18,11 +18,11 @@ Content-Type: application/json
 
 {
   "name": "Ducc",
-  "email": "sfdds@example.com",
+  "email": "asdfg@example.com",
   "role": "admin",
   "is_active": true
 }
 
 ###
 
-DELETE {{host}}{{users}}/zlglnroc0f4dpjy8tmry22xf
+DELETE {{host}}{{users}}/htto8w58rvwu0mv5rzdxlgpo

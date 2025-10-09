@@ -1,14 +1,17 @@
-# from pydantic import BaseModel, ConfigDict
-# from typing import Any, Literal
+from pydantic import BaseModel
+from typing import Generic, Literal, TypeVar
 
-# class SuccessResponse(BaseModel):
-#     success: Literal[True] = True
-#     data: Any
-#     message: str | None = None
+T = TypeVar('T')
+E = TypeVar('E')
 
-# class ErrorResponse(BaseModel):
-#     success: Literal[False] = False
-#     error: Any
-#     message: str | None = None
+class SuccessResponse(BaseModel, Generic[T]):
+    success: Literal[True] = True
+    data: T
+    message: str | None = None
 
-# APIResponse = SuccessResponse | ErrorResponse
+class ErrorResponse(BaseModel, Generic[E]):
+    success: Literal[False] = False
+    error: E
+    message: str | None = None
+
+APIResponse = SuccessResponse | ErrorResponse
