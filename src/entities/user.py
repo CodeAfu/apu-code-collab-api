@@ -18,7 +18,7 @@ class User(SQLModel, table=True):
     apu_id: str | None = SQLField(
         min_length=8,
         max_length=8,
-        regex=r'^T[CP]\d{6}$',  # Matches both TP and TC
+        regex=r'^T[CP]\d{6}$',
         unique=True,
         index=True,
         default=None,
@@ -29,9 +29,14 @@ class User(SQLModel, table=True):
     password_hash: str = SQLField(min_length=60, max_length=255)
     is_active: bool = SQLField(default=True)
     role: UserRole = SQLField(default=UserRole.STUDENT)
+    
+    github_id: int | None = SQLField(unique=True, index=True)
+    github_username: str | None = SQLField(min_length=1, max_length=50, unique=True)
+    github_access_token: str | None = SQLField(min_length=1, max_length=200)
+
     created_at: datetime = SQLField(default_factory=datetime.now)
     updated_at: datetime = SQLField(default_factory=datetime.now)
-
+    
     @model_validator(mode='before')
     @classmethod
     def set_role_from_id(cls, values):
