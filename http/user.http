@@ -1,0 +1,30 @@
+@host = http://localhost:8000
+@users = /api/v1/users
+
+GET {{host}}/health
+
+###
+
+GET {{host}}{{users}}/
+
+###
+
+GET {{host}}{{users}}/btn8x7mcwa8dvr8otquwny4q
+
+###
+
+POST {{host}}{{users}}
+Content-Type: application/json
+
+{
+  "first_name": "Davis",
+  "last_name": "J",
+  "apu_id": "TP026423",
+  "email": "dxa@example.com",
+  "password": "testPassword",
+  "role": "admin"
+}
+
+###
+
+DELETE {{host}}{{users}}/btn8x7mcwa8dvr8otquwny4q

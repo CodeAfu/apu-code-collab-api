@@ -1,0 +1,5 @@
+-r requirements.txt
+alembic
+pytest
+pytest-asyncio
+httpx

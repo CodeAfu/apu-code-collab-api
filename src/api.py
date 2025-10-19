@@ -1,17 +1,21 @@
+
 from contextlib import asynccontextmanager
-import os
-from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from src.models.api_exception import APIException
-from src.routes.user_route import user_router
-from src.utils.db import init_db
+from src.database.core import init_db
+from src.exceptions import APIException
+from src.user.controller import user_router
+from src.auth.controller import auth_router
 
 openapi_tags = [
     {
         "name": "Users",
         "description": "User operations",
+    },
+    {
+        "name": "Auth",
+        "description": "Authentication operations",
     },
     {
         "name": "Health Checks",
@@ -23,21 +27,7 @@ openapi_tags = [
 async def lifespan(app: FastAPI):
     init_db()
     yield
-    
-load_dotenv()
 
-port = os.getenv("PORT")
-env = os.getenv("PYTHON_ENV")
-
-app = FastAPI(
-    openapi_tags=openapi_tags,
-    debug=env == "development",
-    lifespan=lifespan
-)
-
-app.include_router(user_router, prefix="/api/users", tags=["Users"])
-
-@app.exception_handler(APIException)
 async def api_exception_handler(request: Request, exc: APIException):
     return JSONResponse(
         status_code=exc.status_code,
@@ -48,9 +38,13 @@ async def api_exception_handler(request: Request, exc: APIException):
         }
     )
 
+def add_exception_handlers(app: FastAPI):
+    app.add_exception_handler(APIException, api_exception_handler)
 
-@app.get("/health", tags=["Health Checks"])
-async def health_check():
-    return {
-        "message": "API is running",
-    }
+def add_routes(app: FastAPI):
+    app.include_router(user_router, tags=["Users"])
+    app.include_router(auth_router, tags=["Auth"])
+
+def configure_api(app: FastAPI):
+    add_routes(app)
+    add_exception_handlers(app)

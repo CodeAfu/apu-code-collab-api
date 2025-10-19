@@ -4,40 +4,42 @@ from fastapi import status, APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
-from src.models.api_response import ErrorResponse, SuccessResponse
-from src.services.user_service import create_user, delete_user, get_user, get_users, is_unique_email
-from src.models.api_exception import APIException
-from src.models.user import CreateUserRequest, User
-from src.utils.db import get_session
+from src.api_response import ErrorResponse, SuccessResponse
+from src.user import service
+from src.exceptions import APIException
+from src.user.models import CreateUserRequest
+from src.entities.user import User
+from src.database.core import get_session
 
 load_dotenv()
+
 env = os.getenv("PYTHON_ENV")
 
-user_router = APIRouter()
+user_router = APIRouter(prefix="/api/v1/users",)
+
 
 @user_router.get(
     "/",
     response_model=SuccessResponse[list[User]],
     response_model_exclude_none=True,
     responses={
-        401: {"model": ErrorResponse[str]},
+        403: {"model": ErrorResponse[str]},
         500: {"model": ErrorResponse[str]}
     }
 )
-async def handle_get_users(session: Session = Depends(get_session)) -> JSONResponse:
+async def get_users(session: Session = Depends(get_session)) -> JSONResponse:
+    # TODO: 
     if env != "development":
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "error": "Invalid Permission",
-                "message": "You do not have permissions to access this endpoint",
+                "message": "You are not allowed to accesss this endpoint",
             }
         )
-
-    # TODO: Add proper role validation
     
     try:
-        users = get_users(session)
+        users = service.get_users(session)
         
         return SuccessResponse(
             data=users,
@@ -60,9 +62,9 @@ async def handle_get_users(session: Session = Depends(get_session)) -> JSONRespo
     }
 )
 # @limiter.limit("1/second")
-async def handle_get_user(user_id: str, session: Session = Depends(get_session)) -> JSONResponse:
+async def get_user(user_id: str, session: Session = Depends(get_session)) -> JSONResponse:
     try:
-        user = get_user(session, user_id)
+        user = service.get_user(session, user_id)
         if not user:
             raise APIException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -92,17 +94,20 @@ async def handle_get_user(user_id: str, session: Session = Depends(get_session))
         500: {"model": ErrorResponse[str]},
     }
 )
-async def handle_create_user(request: CreateUserRequest, session: Session = Depends(get_session)) -> JSONResponse:
+async def create_user(
+        request: CreateUserRequest,
+        session: Session = Depends(get_session)
+) -> JSONResponse:
     try:
-        email_is_unique = is_unique_email(session, request.email)
+        email_is_unique = service.is_unique_user(session, request.email, request.apu_id)
         if not email_is_unique:
             raise APIException(
                 status_code=status.HTTP_409_CONFLICT,
-                error= "Email is already already registered",
-                message= "Email is already already registered",
+                error= "Email or TP number is already registered",
+                message= "User is already registered",
             )
         
-        user = create_user(session, request);
+        user = service.create_user(session, request);
 
         return SuccessResponse(
             data=user,
@@ -125,9 +130,9 @@ async def handle_create_user(request: CreateUserRequest, session: Session = Depe
         500: {"model": ErrorResponse[str]},
     }
 )
-async def handle_delete_user(user_id: str, session: Session = Depends(get_session)):
+async def delete_user(user_id: str, session: Session = Depends(get_session)):
     try:
-        deleted = delete_user(session, user_id)
+        deleted = service.delete_user(session, user_id)
         
         if not deleted:
             raise APIException(
