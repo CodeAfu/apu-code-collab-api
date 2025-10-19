@@ -28,7 +28,7 @@ user_router = APIRouter(prefix="/api/v1/users",)
     }
 )
 async def get_users(session: Session = Depends(get_session)) -> JSONResponse:
-    # TODO: 
+    # TODO: Protect this better
     if env != "development":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
