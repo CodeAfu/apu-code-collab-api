@@ -33,3 +33,6 @@ archive.zip
 database.db
 rest.http
 .env
+
+http
+http.*
