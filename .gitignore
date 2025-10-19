@@ -1,5 +1,4 @@
 
-
 .idea
 .ipynb_checkpoints
 .mypy_cache
@@ -33,3 +32,4 @@ archive.zip
 
 database.db
 rest.http
+.env
