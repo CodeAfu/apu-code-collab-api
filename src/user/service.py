@@ -34,9 +34,10 @@ def is_unique_user(session: Session, email: str, apu_id: str) -> bool:
 
 
 def create_user(session: Session, request: CreateUserRequest) -> User:
-    print(f"Raw Password: {request.password}")
-    password_hash = security.get_password_hash(request.password)
-    print(f"Hashed Password: {password_hash}")
+    password_hash = None
+    if (request.password):
+        password_hash = security.get_password_hash(request.password)
+        
     user = User(
         first_name=request.first_name,
         last_name=request.last_name,

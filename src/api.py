@@ -7,6 +7,7 @@ from src.database.core import init_db
 from src.exceptions import APIException
 from src.user.controller import user_router
 from src.auth.controller import auth_router
+from src.github.controller import github_router
 
 openapi_tags = [
     {
@@ -43,7 +44,8 @@ def add_exception_handlers(app: FastAPI):
 
 def add_routes(app: FastAPI):
     app.include_router(user_router, tags=["Users"])
-    app.include_router(auth_router, tags=["Auth"])
+    app.include_router(auth_router, tags=["Authentication"])
+    app.include_router(github_router, tags=["GitHub"])
 
 def configure_api(app: FastAPI):
     add_routes(app)

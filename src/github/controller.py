@@ -1,165 +1,140 @@
+from datetime import timedelta
 import os
+from fastapi.responses import RedirectResponse
 import httpx;
 from http.client import HTTPException
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from github import Github
 from requests import Session
 
+from src.api_response import ErrorResponse, SuccessResponse
 from src.database.core import get_session
 from src.entities.user import User
+from src.github import service as github_service
+from src.user import service as user_service
+from src.auth import service as auth_service
 
 load_dotenv()
 
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_CALLBACK_URL = os.getenv("GITHUB_CALLBACK_URL")
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
-github_router = APIRouter(prefix="/api/v1/github",)
+github_router = APIRouter(prefix="/api/v1/auth/github",)
 
 
-@github_router.get("/auth")
+@github_router.get("/login")
 async def github_login():
     """Redirect to GitHub OAuth"""
-    redirect_uri = f"{FRONTEND_URL}/api/auth/callback"
-    scope = "repo read:user read:org"
-    
-    github_auth_url = (
-        f"https://github.com/login/oauth/authorize"
-        f"?client_id={GITHUB_CLIENT_ID}"
-        f"&redirect_uri={redirect_uri}"
-        f"&scope={scope}"
+    return RedirectResponse(
+        f"https://github.com/login/oauth/authorize?"
+        f"client_id={GITHUB_CLIENT_ID}&"
+        f"scope=user:email"
     )
-    
-    return {"url": github_auth_url}
 
 
 @github_router.get("/callback")
-async def github_callback(code: str, db: Session = Depends(get_session)):
-    """Handle GitHub OAuth callback"""
+async def github_callback(code: str, session: Session = Depends(get_session)):
+    """
+    Handle GitHub OAuth callback
+    - If user exists (by email), link their GitHub account
+    - User must still have APU ID from initial registration
+    """
     
-    # Exchange code for access token
-    async with httpx.AsyncClient() as client:
-        token_response = await client.post(
-            "https://github.com/login/oauth/access_token",
-            headers={"Accept": "application/json"},
-            data={
-                "client_id": GITHUB_CLIENT_ID,
-                "client_secret": GITHUB_CLIENT_SECRET,
-                "code": code,
-            },
+    # Exchange code for GitHub access token
+    gh_access_token = await github_service.exchange_code_for_token(code)
+    
+    # Get GitHub user info
+    gh_user = await github_service.get_github_user(gh_access_token)
+    
+    # GitHub users MUST have a public email
+    if not gh_user.get("email"):
+        return RedirectResponse(
+            f"{FRONTEND_URL}/login?error=github_no_email"
         )
     
-    token_data = token_response.json()
-    access_token = token_data.get("access_token")
+    # Check if user exists by email
+    user = user_service.get_user_by_email(session, gh_user["email"])
     
-    if not access_token:
-        raise HTTPException(status_code=400, detail="Failed to get access token")
-    
-    # Get user info from GitHub
-    g = Github(access_token)
-    github_user = g.get_user()
-    
-    # Check if user exists
-    user = db.query(User).filter(User.github_id == github_user.id).first()
-    
-    if user:
-        # Update existing user
-        user.github_access_token = access_token
-        user.github_username = github_user.login
-    else:
-        # Create new user
-        user = User(
-            github_id=github_user.id,
-            github_username=github_user.login,
-            github_access_token=access_token,
-        )
-        db.add(user)
-    
-    db.commit()
-    db.refresh(user)
-    
-    # Return user info and token (you'll want to use JWT in production)
-    return {
-        "user_id": user.id,
-        "github_username": user.github_username,
-        "github_id": user.github_id,
-    }
-
-
-@github_router.get("/repos/{user_id}")
-async def get_repos(user_id: int, db: Session = Depends(get_session)):
-    """Get user's GitHub repositories"""
-    
-    user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        # User doesn't exist - they need to register with APU credentials first
+        return RedirectResponse(
+            f"{FRONTEND_URL}/register?error=no_account&email={gh_user['email']}"
+        )
     
-    g = Github(user.github_access_token)
-    repos = g.get_user().get_repos()
+    # User exists - link/update their GitHub info
+    user.github_id = gh_user["id"]
+    user.github_username = gh_user["login"]
+    user.github_avatar_url = gh_user.get("avatar_url")
     
-    return [{
-        "id": repo.id,
-        "name": repo.name,
-        "full_name": repo.full_name,
-        "description": repo.description,
-        "html_url": repo.html_url,
-        "private": repo.private,
-    } for repo in repos]
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    
+    # Create JWT tokens
+    access_token = auth_service.create_access_token(
+        user.email,
+        user.id,
+        user.apu_id,
+        timedelta(minutes=auth_service.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    
+    refresh_token = auth_service.create_refresh_token(
+        user.email,
+        user.id,
+        user.apu_id,
+        timedelta(days=auth_service.REFRESH_TOKEN_EXPIRE_DAYS)
+    )
+    
+    # Redirect to frontend with tokens
+    return RedirectResponse(
+        f"{FRONTEND_URL}/auth/callback?"
+        f"access_token={access_token}&"
+        f"refresh_token={refresh_token}"
+    )
 
 
-@github_router.post("/create-project/{user_id}")
-async def create_project(
-    user_id: int,
-    project_data: dict,
-    db: Session = Depends(get_session)
+
+@github_router.post("/disconnect")
+async def github_disconnect(
+    current_user: auth_service.CurrentUser,
+    session: Session = Depends(get_session)
 ):
-    """Create a new GitHub repository and add collaborators"""
+    """Disconnect GitHub account from logged-in user"""
+    user = user_service.get_user(session, current_user.user_id)
     
-    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    g = Github(user.github_access_token)
-    github_user = g.get_user()
+    if not user.github_id:
+        raise HTTPException(status_code=400, detail="No GitHub account linked")
     
-    try:
-        # Create repository
-        repo = github_user.create_repo(
-            name=project_data["name"],
-            description=project_data.get("description", ""),
-            private=project_data.get("private", False),
-            auto_init=True,  # Initialize with README
-        )
-        
-        # Add collaborators
-        for username in project_data.get("collaborators", []):
-            repo.add_to_collaborators(username, permission="push")
-        
-        return {
-            "success": True,
-            "repo_url": repo.html_url,
-            "repo_name": repo.full_name,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # Unlink GitHub account
+    user.github_id = None
+    user.github_username = None
+    user.github_avatar_url = None
+    
+    session.add(user)
+    session.commit()
+    
+    return {"message": "GitHub account disconnected successfully"}
 
 
-@github_router.get("/user/{user_id}")
-async def get_github_user(user_id: int, db: Session = Depends(get_session)):
-    """Get GitHub user info"""
+@github_router.get("/status")
+async def github_status(
+    current_user: auth_service.CurrentUser,
+    session: Session = Depends(get_session)
+):
+    """Check if current user has GitHub account linked"""
+    user = user_service.get_user(session, current_user.user_id)
     
-    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    g = Github(user.github_access_token)
-    github_user = g.get_user()
     
     return {
-        "username": github_user.login,
-        "name": github_user.name,
-        "avatar_url": github_user.avatar_url,
-        "bio": github_user.bio,
-        "public_repos": github_user.public_repos,
+        "connected": user.github_id is not None,
+        "github_username": user.github_username,
+        "github_avatar_url": user.github_avatar_url
     }

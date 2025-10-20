@@ -4,20 +4,26 @@ from pydantic import BaseModel, EmailStr, Field
 class CreateUserRequest(BaseModel):
     first_name: str = Field(min_length=1, max_length=50)
     last_name: str = Field(min_length=1, max_length=50)
-    apu_id: str | None = None
+    apu_id: str
     email: EmailStr
-    password: str
+    password: str | None = None
     role: str = "student"
     is_active: bool = True
 
-class RegisterUserRequest(BaseModel):
+
+class GitHubUserRequest(BaseModel):
     first_name: str = Field(min_length=1, max_length=50)
     last_name: str = Field(min_length=1, max_length=50)
     apu_id: str
     email: EmailStr
-    password: str
-    role: str = "student"
-    is_active: bool = True
+    role: str = "student",  # Default role
+    github_id: int
+    github_username: str
+    github_avatar_url: str
+
+class UpdateGitHubInfoRequest(BaseModel):
+    github_id: int
+    github_username: str
 
 class PasswordChangeRequest(BaseModel):
     current_password: str
