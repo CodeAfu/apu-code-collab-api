@@ -96,7 +96,6 @@ async def github_callback(code: str, session: Session = Depends(get_session)):
     )
 
 
-
 @github_router.post("/disconnect")
 async def github_disconnect(
     current_user: auth_service.CurrentUser,
