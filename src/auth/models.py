@@ -7,7 +7,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     user_id: str | None = None
-    apu_ud: str | None = None
+    apu_id: str | None = None
     email: str | None = None
     token_type: str = "access"
 

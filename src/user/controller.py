@@ -121,6 +121,7 @@ async def create_user(
             message="Unknown error occurred"
         )
 
+
 @user_router.delete(
     "/{user_id}",
     response_model=SuccessResponse[None],

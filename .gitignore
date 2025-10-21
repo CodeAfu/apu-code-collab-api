@@ -36,3 +36,7 @@ rest.http
 
 http
 http.*
+
+alembic.ini
+alembic/
+alembic

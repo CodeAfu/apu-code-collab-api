@@ -12,7 +12,7 @@ from src.entities.user import User
 from src.auth.models import Token, TokenData
 from src.utils import security
 from src.exceptions import AuthenticationError
-from src.user.models import RegisterUserRequest
+from src.user.models import CreateUserRequest
 from src.user.service import get_user_by_email
 
 load_dotenv()
@@ -104,7 +104,7 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
         raise AuthenticationError()
 
 
-def register_user(session: Session, request: RegisterUserRequest) -> User:
+def register_user(session: Session, request: CreateUserRequest) -> User:
     try:
         password_hash = security.get_password_hash(request.password)
         user = User(
