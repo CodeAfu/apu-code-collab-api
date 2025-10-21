@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 class Token(BaseModel):
     access_token: str
-    # github_token: str | None
+    github_access_token: str | None
     refresh_token: str
     token_type: str
 

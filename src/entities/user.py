@@ -26,7 +26,7 @@ class User(SQLModel, table=True):
     first_name: str = SQLField(min_length=1, max_length=50, index=True)
     last_name: str = SQLField(min_length=1, max_length=50, index=True)
     email: str = SQLField(unique=True, index=True)
-    password_hash: str | None = SQLField(min_length=60, max_length=255)
+    password_hash: str = SQLField(min_length=60, max_length=255)
     is_active: bool = SQLField(default=True)
     role: UserRole = SQLField(default=UserRole.STUDENT)
     

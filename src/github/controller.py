@@ -1,16 +1,12 @@
 from datetime import timedelta
 import os
 from fastapi.responses import RedirectResponse
-import httpx;
 from http.client import HTTPException
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, Request
-from github import Github
+from fastapi import APIRouter, Depends
 from requests import Session
 
-from src.api_response import ErrorResponse, SuccessResponse
 from src.database.core import get_session
-from src.entities.user import User
 from src.github import service as github_service
 from src.user import service as user_service
 from src.auth import service as auth_service
@@ -31,7 +27,7 @@ async def github_login():
     return RedirectResponse(
         f"https://github.com/login/oauth/authorize?"
         f"client_id={GITHUB_CLIENT_ID}&"
-        f"scope=user:email"
+        f"scope=repo,read:user"
     )
 
 
