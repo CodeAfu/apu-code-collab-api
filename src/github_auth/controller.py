@@ -1,10 +1,12 @@
-from datetime import timedelta
 import os
+import secrets
+from urllib.parse import urlencode
+from datetime import timedelta
 from fastapi.responses import RedirectResponse
-from http.client import HTTPException
+from fastapi import HTTPException, Request
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends
-from requests import Session
+from sqlmodel import Session
 
 from src.database.core import get_session
 from src.github_auth import service as github_service
@@ -19,27 +21,43 @@ GITHUB_OAUTH_CALLBACK_URL = os.getenv("GITHUB_OAUTH_CALLBACK_URL")
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 github_router = APIRouter(prefix="/api/v1/auth/github",)
-scopes = "user:email%20read:org%20read:user"
+scopes = ["user:email", "read:org", "read:user"]
 
 
 @github_router.get("/login")
 async def github_login():
     """Redirect to GitHub OAuth"""
-    return RedirectResponse(
-        f"https://github.com/login/oauth/authorize?"
-        f"client_id={GITHUB_OAUTH_CLIENT_ID}&"
-        f"scope={scopes}"
-    )
+    state = secrets.token_urlsafe(32)
+    params = {
+        "client_id": GITHUB_OAUTH_CLIENT_ID,
+        "redirect_uri": GITHUB_OAUTH_CALLBACK_URL,
+        "scope": " ".join(scopes),
+        "state": state,
+    }
+    resp = RedirectResponse(f"https://github.com/login/oauth/authorize?{urlencode(params)}")
+    # Persist state; simplest: short‑lived, HttpOnly cookie
+    resp.set_cookie("gh_oauth_state", state, max_age=600, httponly=True, secure=True, samesite="lax")
+    return resp
 
 
 @github_router.get("/callback")
-async def github_callback(code: str, session: Session = Depends(get_session)):
+@github_router.get("/callback")
+async def github_callback(
+    code: str,
+    state: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):    
     """
     Handle GitHub OAuth callback
     - If user exists (by email), link their GitHub account
     - User must still have APU ID from initial registration
     """
     
+    # Validate state
+    if request.cookies.get("gh_oauth_state") != state:
+        return RedirectResponse(f"{FRONTEND_URL}/login?error=github_state_mismatch")
+
     # Exchange code for GitHub access token
     gh_access_token = await github_service.exchange_code_for_token(code)
     
@@ -86,11 +104,10 @@ async def github_callback(code: str, session: Session = Depends(get_session)):
     )
     
     # Redirect to frontend with tokens
-    return RedirectResponse(
-        f"{FRONTEND_URL}/auth/callback?"
-        f"access_token={access_token}&"
-        f"refresh_token={refresh_token}"
-    )
+    resp = RedirectResponse(f"{FRONTEND_URL}/auth/callback")
+    resp.set_cookie("access_token", access_token, httponly=True, secure=True, samesite="lax", max_age=60*auth_service.ACCESS_TOKEN_EXPIRE_MINUTES)
+    resp.set_cookie("refresh_token", refresh_token, httponly=True, secure=True, samesite="lax", max_age=24*60*auth_service.REFRESH_TOKEN_EXPIRE_DAYS)
+    return resp
 
 
 @github_router.post("/disconnect")

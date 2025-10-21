@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from src.database.core import init_db
-from src.exceptions import APIException
+from src.exceptions import APIException, AuthenticationError
 from src.user.controller import user_router
 from src.auth.controller import auth_router
 from src.github_auth.controller import github_router
@@ -44,6 +44,7 @@ async def api_exception_handler(request: Request, exc: APIException):
 
 def add_exception_handlers(app: FastAPI):
     app.add_exception_handler(APIException, api_exception_handler)
+    app.add_exception_handler(AuthenticationError, api_exception_handler)
 
 def add_routes(app: FastAPI):
     app.include_router(user_router, tags=["Users"])

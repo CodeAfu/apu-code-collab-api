@@ -9,7 +9,7 @@ class CreateUserRequest(BaseModel):
     apu_id: str
     email: EmailStr
     password: str | None = None
-    role: str = "student"
+    role: str = Field(default="student")
     is_active: bool = True
 
 

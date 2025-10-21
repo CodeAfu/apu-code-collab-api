@@ -35,7 +35,7 @@ def is_unique_user(session: Session, email: str, apu_id: str) -> bool:
 
 def create_user(session: Session, request: CreateUserRequest) -> User:
     password_hash = None
-    if (request.password):
+    if request.password:
         password_hash = security.get_password_hash(request.password)
         
     user = User(
