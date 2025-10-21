@@ -1,4 +1,3 @@
-
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -7,7 +6,7 @@ from src.database.core import init_db
 from src.exceptions import APIException
 from src.user.controller import user_router
 from src.auth.controller import auth_router
-from src.github.controller import github_router
+from src.github_auth.controller import github_router
 
 openapi_tags = [
     {
@@ -15,13 +14,17 @@ openapi_tags = [
         "description": "User operations",
     },
     {
-        "name": "Auth",
+        "name": "Authentication",
         "description": "Authentication operations",
+    },
+    {
+        "name": "GitHub OAuth",
+        "description": "GitHub Authorization",
     },
     {
         "name": "Health Checks",
         "description": "Application health checks",
-    }
+    },
 ]
 
 @asynccontextmanager
@@ -45,7 +48,7 @@ def add_exception_handlers(app: FastAPI):
 def add_routes(app: FastAPI):
     app.include_router(user_router, tags=["Users"])
     app.include_router(auth_router, tags=["Authentication"])
-    app.include_router(github_router, tags=["GitHub"])
+    app.include_router(github_router, tags=["GitHub OAuth"])
 
 def configure_api(app: FastAPI):
     add_routes(app)
