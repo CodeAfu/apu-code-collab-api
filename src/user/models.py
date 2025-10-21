@@ -19,7 +19,7 @@ class GitHubUserRequest(BaseModel):
     # apu_id: str
     # email: EmailStr
     # role: str = "student",
-    user: User
+    user_id: str
     github_id: int
     github_username: str
     github_avatar_url: str
