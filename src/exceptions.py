@@ -1,22 +1,29 @@
+from fastapi import HTTPException, status
+from src.config import settings
 
-class APIException(Exception):
+
+class InternalException(HTTPException):
     def __init__(
             self,
-            status_code: int = 500,
-            error: str = "INTERNAL_SERVER_ERROR",
-            message: str = None
+            message: str = "An unexpected error occurred",
+            error: str | None = None
     ):
-        self.status_code = status_code
-        self.error = error
-        self.message = message
+        detail = { "message": message }
+        if error and settings.is_development:
+            detail["error"] = error
 
-class AuthenticationError(Exception):
+        super().__init__(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=detail
+        )
+
+class AuthenticationError(HTTPException):
     def __init__(
             self,
-            status_code: int = 401,
-            error: str = "AUTHENTICATION_FAILED",
-            message: str = "Could not validate user"
+            message: str = "Could not validate user",
+            error: str = "AUTHENTICATON FAILED"
     ):
-        self.status_code = status_code,
-        self.error = error
-        self.message = message
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={ "message": message, "error": error }
+        )

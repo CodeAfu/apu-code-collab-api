@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session
 
-from src.api_response import SuccessResponse
 from src.auth.models import RefreshTokenRequest, Token
 from src.auth import service
 from src.database.core import get_session
@@ -17,10 +16,7 @@ auth_router = APIRouter(prefix="/api/v1/auth")
 @limiter.limit("5/hour")
 async def register_user(request: Request, register_user_request: CreateUserRequest, session: Session = Depends(get_session)):
     user = service.register_user(session, register_user_request)
-    return SuccessResponse(
-        data=user,
-        message="User has been successfully registered"
-    )
+    return user
 
 
 @auth_router.post(
