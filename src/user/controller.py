@@ -1,11 +1,10 @@
 from dotenv import load_dotenv
-from fastapi import status, APIRouter, Depends, HTTPException
+from fastapi import Request, status, APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
-from src.api_response import SuccessResponse
+from src.rate_limiter import limiter
 from src.user import service
-from src.exceptions import InternalException
 from src.user.models import CreateUserRequest
 from src.entities.user import User
 from src.database.core import get_session
@@ -33,16 +32,7 @@ async def get_users(session: Session = Depends(get_session)) -> JSONResponse:
             }
         )
     
-    try:
-        users = service.get_users(session)
-        return users
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise InternalException(
-            message=unknown_error_message,
-            error=str(e)
-        )
+    return service.get_users(session)
 
 
 @user_router.get(
@@ -50,80 +40,36 @@ async def get_users(session: Session = Depends(get_session)) -> JSONResponse:
     response_model=User,
     response_model_exclude_none=True,
 )
-# @limiter.limit("1/second")
-async def get_user(user_id: str, session: Session = Depends(get_session)) -> JSONResponse:
-    try:
-        user = service.get_user(session, user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User does not exist"
-            )
-        return user
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise InternalException(
-            message=unknown_error_message,
-            error=str(e)
-        )
- 
+@limiter.limit("1/second")
+async def get_user(
+    request: Request,
+    user_id: str,
+    session: Session = Depends(get_session)
+) -> JSONResponse:
+    return service.get_user(session, user_id)
+
 
 @user_router.post(
     "",
+    status_code=status.HTTP_201_CREATED,
     response_model=User,
     response_model_exclude_none=True,
 )
+@limiter.limit("1/minute")
 async def create_user(
-    request: CreateUserRequest,
+    request: Request,
+    create_request: CreateUserRequest,
     session: Session = Depends(get_session)
 ) -> JSONResponse:
-    try:
-        email_is_unique = service.is_unique_user(session, request.email, request.apu_id)
-        if not email_is_unique:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "Email or TP number is already registered",
-                    "message": "User is already registered",
-                }
-            )
-        
-        user = service.create_user(session, request);
-        return user
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise InternalException(
-            message=unknown_error_message,
-            error=str(e)
-        )
+    service.ensure_user_is_unique(session, create_request.email, create_request.apu_id)
+    return service.create_user(session, create_request)
 
 
 @user_router.delete(
     "/{user_id}",
-    response_model=dict,
+    response_model=User,
     response_model_exclude_none=False,
 )
-async def delete_user(user_id: str, session: Session = Depends(get_session)):
-    try:
-        deleted = service.delete_user(session, user_id)
-        
-        if not deleted:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": "USER_NOT_FOUND",
-                    "message": "User does not exist"
-                }
-            )
-        
-        return { "message": "User deleted successfully" }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise InternalException(
-            message=unknown_error_message,
-            error=str(e)
-        )
-
+@limiter.limit("1/minute")
+async def delete_user(request: Request, user_id: str, session: Session = Depends(get_session)):
+    return service.delete_user(session, user_id)

@@ -1,28 +1,25 @@
 import logging
-import os
 import jwt
-from dotenv import load_dotenv
 from typing import Annotated
 from datetime import datetime, timedelta, timezone
 from sqlmodel import Session
-from fastapi import Depends 
+from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from src.entities.user import User
 from src.auth.models import Token, TokenData
 from src.utils import security
-from src.exceptions import AuthenticationError
+from src.exceptions import AuthenticationError, InternalException
 from src.user.models import CreateUserRequest
 from src.user.service import get_user_by_email
+from src.config import settings
 
-load_dotenv()
-
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-ALGORITHM = os.getenv("ENCRYPTION_ALGORITHM")
+SECRET_KEY = settings.JWT_SECRET_KEY
+ALGORITHM = settings.ENCRYPTION_ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = 1 # TODO: Increase to 15
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 def get_password_hash(password: str) -> str:
     return security.get_password_hash(password)
@@ -34,28 +31,36 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def authenticate_user(session: Session, email: str, password: str) -> User:
     user = get_user_by_email(session, email)
-    if not user or not security.verify_password(password, user.password_hash):
-        logging.warning(f"Failed to authenticate attempt for email: {email}")
-        return False
+    if not user:
+        # Constant-time dummy hash to prevent timing attacks
+        security.verify_password(password, security.get_password_hash("dummy"))
+        raise AuthenticationError(debug=f"User with email '{email}' not found")
+    
+    if not security.verify_password(password, user.password_hash):
+        raise AuthenticationError(debug=f"Password entry '{password}' does not match the password hash")
+    
     return user
 
 
-def create_refresh_token(email: str, user_id: str, apu_id: str, expires_delta: timedelta) -> str:
+def create_refresh_token(email: str, user_id: str, apu_id: str, role: str, expires_delta: timedelta) -> str:
     encode = {
         "id": user_id,
         "sub": email,
         "apu_id": apu_id,
+        "role": role,
         "type": "refresh",
         "exp": datetime.now(timezone.utc) + expires_delta
     }
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_access_token(email: str, user_id: str, apu_id: str, expires_delta: timedelta) -> str:
+def create_access_token(email: str, user_id: str, apu_id: str, role: str, expires_delta: timedelta) -> str:
     encode = {
         "id": user_id,
         "sub": email,
         "apu_id": apu_id,
+        "role": role,
+        "type": "access",
         "exp": datetime.now(timezone.utc) + expires_delta
     }
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -63,8 +68,8 @@ def create_access_token(email: str, user_id: str, apu_id: str, expires_delta: ti
 
 def refresh_access_token(session: Session, refresh_token: str) -> Token:
     token_data = verify_token(refresh_token, expected_type="refresh")
-    
     user = get_user_by_email(session, token_data.email)
+    
     if not user:
         raise AuthenticationError()
     
@@ -86,12 +91,21 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("id")
-        email = payload.get("sub")
         apu_id = payload.get("apu_id")
+        email = payload.get("sub")
         token_type = payload.get("type", "access")
 
+        if not all([user_id, email, apu_id]):
+            raise AuthenticationError(
+                error_code="INVALID_TOKEN",
+                message="Invalid token payload",
+            )
+
         if token_type != expected_type:
-            raise AuthenticationError()
+            raise AuthenticationError(
+                error_code="INVALID_TOKEN_TYPE",
+                message=f"Expected {expected_type} token, got {token_type}"
+            )
 
         return TokenData(
             user_id=user_id,
@@ -99,9 +113,25 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
             apu_id=apu_id,
             token_type=token_type
         )
-    except jwt.PyJWTError as e:
-        logging.warning(f"Token verification failed: {str(e)}")
-        raise AuthenticationError()
+    except jwt.ExpiredSignatureError:
+        raise AuthenticationError(
+            message="Token has expired",
+            error_code="TOKEN_EXPIRED"
+        )
+    except jwt.InvalidTokenError as e:
+        logging.warning(f"Invalid token: {str(e)}")
+        raise AuthenticationError(
+            message="Invalid token",
+            error_code="INVALID_TOKEN",
+            debug=str(e)
+        )
+    except Exception as e:
+        logging.error(f"Unexpected error verifying token: {str(e)}")
+        raise AuthenticationError(
+            message="Token verification failed",
+            error_code="TOKEN_VERIFICATION_FAILED",
+            debug=str(e)
+        )
 
 
 def register_user(session: Session, request: CreateUserRequest) -> User:
@@ -122,9 +152,10 @@ def register_user(session: Session, request: CreateUserRequest) -> User:
         return user
     except Exception as e:
         logging.error(f"Failed to register user: {request.email}. Error: {str(e)}")
-        raise
+        raise InternalException()
 
 
+# def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenData:
 def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> TokenData:
     return verify_token(token)
 
@@ -132,17 +163,16 @@ CurrentUser = Annotated[TokenData, Depends(get_current_user)]
 
 
 def login_for_access_token(
-        session: Session,
-        form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
+    session: Session,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token:
     user = authenticate_user(session, form_data.username, form_data.password)
-    if not user:
-        raise AuthenticationError()
     
     access_token = create_access_token(
         user.email, 
         user.id, 
-        user.apu_id, 
+        user.apu_id,
+        user.role,
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
@@ -150,7 +180,8 @@ def login_for_access_token(
         user.email,
         user.id,
         user.apu_id,
+        user.role,
         timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     )
     
-    return Token(access_token=access_token, refresh_token=refresh_token, token_type='bearer')
+    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")

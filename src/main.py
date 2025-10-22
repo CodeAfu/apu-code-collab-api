@@ -13,3 +13,6 @@ app = FastAPI(
 )
 
 configure_api(app)
+
+if settings.is_development:
+    print("RUNNING APPLICATION ON DEVELOPMENT ENVIRONMENT")

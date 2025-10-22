@@ -28,8 +28,8 @@ async def exchange_code_for_token(code: str) -> str:
             
             if response.status_code != 200:
                 raise AuthenticationError(
-                    error="Failed to get access token from GitHub domain", 
-                    message="GitHub authorization failed"
+                    message="GitHub authorization failed",
+                    debug="Failed to get access token from GitHub domain", 
                 )
             
             token_data = response.json()
@@ -37,16 +37,16 @@ async def exchange_code_for_token(code: str) -> str:
             
             if not access_token:
                 raise AuthenticationError(
-                    error="No access token present on the token data",
-                    message="GitHub authorization failed"
+                    message="GitHub authorization failed",
+                    debug="No access token present on the token data",
                 )
             
             return access_token
     except httpx.RequestError as e:
         raise AuthenticationError(
             status_code=502,
-            error="GITHUB_TOKEN_EXCHANGE_NETWORK_ERROR",
-            message=str(e),
+            error_code="GITHUB_TOKEN_EXCHANGE_NETWORK_ERROR",
+            debug=str(e),
         )
 
 
@@ -70,6 +70,6 @@ async def get_github_user(access_token: str) -> dict:
     except httpx.RequestError as e:
         raise AuthenticationError(
             status_code=502,
-            error="GITHUB_USER_FETCH_NETWORK_ERROR",
-            message=str(e),
+            error_code="GITHUB_USER_FETCH_NETWORK_ERROR",
+            debug=str(e),
         )
