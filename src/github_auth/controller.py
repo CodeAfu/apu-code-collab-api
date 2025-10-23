@@ -41,7 +41,6 @@ async def github_login():
 
 
 @github_router.get("/callback")
-@github_router.get("/callback")
 async def github_callback(
     code: str,
     state: str,
@@ -104,7 +103,7 @@ async def github_callback(
     )
     
     # Redirect to frontend with tokens
-    resp = RedirectResponse(f"{FRONTEND_URL}/auth/callback")
+    resp = RedirectResponse(f"{FRONTEND_URL}/github/auth/callback")
     resp.set_cookie("access_token", access_token, httponly=True, secure=True, samesite="lax", max_age=60*auth_service.ACCESS_TOKEN_EXPIRE_MINUTES)
     resp.set_cookie("refresh_token", refresh_token, httponly=True, secure=True, samesite="lax", max_age=24*60*auth_service.REFRESH_TOKEN_EXPIRE_DAYS)
     return resp
@@ -132,7 +131,7 @@ async def github_disconnect(
     session.add(user)
     session.commit()
     
-    return {"message": "GitHub account disconnected successfully"}
+    return { "message": "GitHub account disconnected successfully" }
 
 
 @github_router.get("/status")

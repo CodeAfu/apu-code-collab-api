@@ -1,16 +1,10 @@
-import os
-from dotenv import load_dotenv
 from sqlmodel import create_engine, SQLModel, Session
+from src.config import settings
 
-load_dotenv()
+if settings.is_development:
+    print(f"DATABASE_URL={settings.DATABASE_URL}")
 
-PYTHON_ENV = os.getenv("PYTHON_ENV")
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if PYTHON_ENV == "development":
-    print(f"DATABASE_URL={DATABASE_URL}")
-
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(settings.DATABASE_URL, echo=True)
 
 def init_db():
     SQLModel.metadata.create_all(engine)

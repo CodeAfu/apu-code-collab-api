@@ -1,5 +1,6 @@
 from sqlmodel import Session, select
 
+from src.exceptions import UserAlreadyExistsException, UserDoesNotExistException
 from src.entities.user import User
 from src.user.models import CreateUserRequest
 from src.utils import security
@@ -10,9 +11,14 @@ def get_users(session: Session) -> list[User]:
 
 
 def get_user(session: Session, user_id: str) -> User:
-    return session.exec(
+    user = session.exec(
         select(User).where(User.id == user_id)
     ).first()
+
+    if not user:
+        raise UserDoesNotExistException()
+    
+    return user
 
 
 def get_user_by_email(session: Session, email: str) -> User:
@@ -27,10 +33,13 @@ def is_unique_email(session: Session, email: str) -> bool:
     ).first() is None
 
 
-def is_unique_user(session: Session, email: str, apu_id: str) -> bool:
-    return session.exec(
+def ensure_user_is_unique(session: Session, email: str, apu_id: str) -> None:
+    user = session.exec(
         select(User).where((User.email == email) | (User.apu_id == apu_id))
-    ).first() is None
+    ).first()
+
+    if user:
+        raise UserAlreadyExistsException()
 
 
 def create_user(session: Session, request: CreateUserRequest) -> User:
@@ -54,14 +63,15 @@ def create_user(session: Session, request: CreateUserRequest) -> User:
     return user
 
 
-def delete_user(session: Session, user_id: str) -> bool:
+def delete_user(session: Session, user_id: str) -> User:
     user = session.exec(
         select(User).where(User.id == user_id)
     ).first()
     
     if not user:
-        return False
+        raise UserDoesNotExistException()
     
     session.delete(user)
     session.commit()
-    return True
+
+    return user
