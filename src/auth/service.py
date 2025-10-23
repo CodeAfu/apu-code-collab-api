@@ -134,7 +134,7 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
         )
 
 
-def register_user(session: Session, request: CreateUserRequest) -> User:
+def register_user(session: Session, request: CreateUserRequest) -> bool:
     try:
         password_hash = security.get_password_hash(request.password)
         user = User(
@@ -149,7 +149,7 @@ def register_user(session: Session, request: CreateUserRequest) -> User:
         session.commit()
         session.refresh(user)
 
-        return user
+        return True
     except Exception as e:
         logging.error(f"Failed to register user: {request.email}. Error: {str(e)}")
         raise InternalException()

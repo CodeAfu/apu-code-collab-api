@@ -12,7 +12,11 @@ from src.user.models import CreateUserRequest
 auth_router = APIRouter(prefix="/api/v1/auth")
 
 
-@auth_router.post("/register", status_code=status.HTTP_201_CREATED)
+@auth_router.post(
+    "/register", 
+    status_code=status.HTTP_201_CREATED,
+    response_model=bool,
+)
 @limiter.limit("5/hour")
 async def register_user(
     request: Request,

@@ -1,6 +1,8 @@
 import os
 import httpx
 from dotenv import load_dotenv
+from fastapi import status
+
 from src.exceptions import AuthenticationError
 
 load_dotenv()
@@ -44,7 +46,7 @@ async def exchange_code_for_token(code: str) -> str:
             return access_token
     except httpx.RequestError as e:
         raise AuthenticationError(
-            status_code=502,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             error_code="GITHUB_TOKEN_EXCHANGE_NETWORK_ERROR",
             debug=str(e),
         )

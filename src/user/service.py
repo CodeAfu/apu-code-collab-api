@@ -1,4 +1,3 @@
-from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from src.exceptions import UserAlreadyExistsException, UserDoesNotExistException
@@ -74,4 +73,5 @@ def delete_user(session: Session, user_id: str) -> User:
     
     session.delete(user)
     session.commit()
+
     return user

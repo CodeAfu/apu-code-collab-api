@@ -32,13 +32,15 @@ async def get_users(session: Session = Depends(get_session)) -> JSONResponse:
             }
         )
     
-    return service.get_users(session)
+    users = service.get_users(session)
+    return [user.model_dump(exclude={"password_hash"}) for user in users]
 
 
 @user_router.get(
     "/{user_id}",
     response_model=User,
     response_model_exclude_none=True,
+    response_model_exclude={"password_hash"}
 )
 @limiter.limit("1/second")
 async def get_user(
@@ -54,8 +56,9 @@ async def get_user(
     status_code=status.HTTP_201_CREATED,
     response_model=User,
     response_model_exclude_none=True,
+    response_model_exclude={"password_hash"},
 )
-@limiter.limit("1/minute")
+@limiter.limit("10/minute")
 async def create_user(
     request: Request,
     create_request: CreateUserRequest,
@@ -70,6 +73,6 @@ async def create_user(
     response_model=User,
     response_model_exclude_none=False,
 )
-@limiter.limit("1/minute")
+@limiter.limit("10/minute")
 async def delete_user(request: Request, user_id: str, session: Session = Depends(get_session)):
     return service.delete_user(session, user_id)
