@@ -18,6 +18,21 @@ class InternalException(HTTPException):
             detail=detail
         )
 
+class ConflictException(HTTPException):
+    def __init__(
+            self,
+            message: str = "Resource already exists",
+            error: str | None = None,
+    ):
+        detail = { "message": message }
+        if error and settings.is_development:
+            detail["error"] = error
+
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail
+        )
+
 class UserDoesNotExistException(HTTPException):
     def __init__(
         self,

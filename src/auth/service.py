@@ -5,11 +5,12 @@ from datetime import datetime, timedelta, timezone
 from sqlmodel import Session
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
 
 from src.entities.user import User
 from src.auth.models import Token, TokenData
 from src.utils import security
-from src.exceptions import AuthenticationError, InternalException
+from src.exceptions import AuthenticationError, ConflictException, InternalException
 from src.user.models import CreateUserRequest
 from src.user.service import get_user_by_email
 from src.config import settings
@@ -34,10 +35,16 @@ def authenticate_user(session: Session, email: str, password: str) -> User:
     if not user:
         # Constant-time dummy hash to prevent timing attacks
         security.verify_password(password, security.get_password_hash("dummy"))
-        raise AuthenticationError(debug=f"User with email '{email}' not found")
+        raise AuthenticationError(
+            message="Invalid Email or Password",
+            debug=f"User with email '{email}' not found"
+        )
     
     if not security.verify_password(password, user.password_hash):
-        raise AuthenticationError(debug=f"Password entry '{password}' does not match the password hash")
+        raise AuthenticationError(
+            message="Invalid Email or Password",
+            debug=f"Password entry '{password}' does not match the password hash"
+        )
     
     return user
 
@@ -113,10 +120,11 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
             apu_id=apu_id,
             token_type=token_type
         )
-    except jwt.ExpiredSignatureError:
+    except jwt.ExpiredSignatureError as e:
         raise AuthenticationError(
             message="Token has expired",
-            error_code="TOKEN_EXPIRED"
+            error_code="TOKEN_EXPIRED",
+            debug=str(e)
         )
     except jwt.InvalidTokenError as e:
         logging.warning(f"Invalid token: {str(e)}")
@@ -150,10 +158,16 @@ def register_user(session: Session, request: CreateUserRequest) -> bool:
         session.refresh(user)
 
         return True
+    except IntegrityError as e:
+        session.rollback()
+        if "unique constraint" in str(e).lower():
+            raise ConflictException("Email already registered")
+        raise
     except Exception as e:
-        logging.error(f"Failed to register user: {request.email}. Error: {str(e)}")
-        raise InternalException()
-
+        session.rollback()
+        logging.exception(f"Failed to register user: {request.email}")
+        raise InternalException("Failed to create user")
+    
 
 # def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenData:
 def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> TokenData:
