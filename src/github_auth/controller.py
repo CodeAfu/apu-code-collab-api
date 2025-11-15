@@ -92,6 +92,7 @@ async def github_callback(
         user.email,
         user.id,
         user.apu_id,
+        user.role,
         timedelta(minutes=auth_service.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
@@ -99,6 +100,7 @@ async def github_callback(
         user.email,
         user.id,
         user.apu_id,
+        user.role,
         timedelta(days=auth_service.REFRESH_TOKEN_EXPIRE_DAYS)
     )
     
@@ -115,6 +117,9 @@ async def github_disconnect(
     session: Session = Depends(get_session)
 ):
     """Disconnect GitHub account from logged-in user"""
+    if not current_user.user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+
     user = user_service.get_user(session, current_user.user_id)
     
     if not user:
@@ -140,6 +145,9 @@ async def github_status(
     session: Session = Depends(get_session)
 ):
     """Check if current user has GitHub account linked"""
+    if not current_user.user_id:
+        raise HTTPException(status_code=404, detail="User not found")
+
     user = user_service.get_user(session, current_user.user_id)
     
     if not user:

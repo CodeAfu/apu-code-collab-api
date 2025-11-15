@@ -4,9 +4,10 @@ from src.exceptions import UserAlreadyExistsException, UserDoesNotExistException
 from src.entities.user import User
 from src.user.models import CreateUserRequest
 from src.utils import security
+from typing import Sequence
 
 
-def get_users(session: Session) -> list[User]:
+def get_users(session: Session) -> Sequence[User]:
     return session.exec(select(User)).all()
 
 
@@ -21,7 +22,7 @@ def get_user(session: Session, user_id: str) -> User:
     return user
 
 
-def get_user_by_email(session: Session, email: str) -> User:
+def get_user_by_email(session: Session, email: str) -> User | None:
     return session.exec(
         select(User).where(User.email == email)
     ).first()
@@ -43,9 +44,7 @@ def ensure_user_is_unique(session: Session, email: str, apu_id: str) -> None:
 
 
 def create_user(session: Session, request: CreateUserRequest) -> User:
-    password_hash = None
-    if request.password:
-        password_hash = security.get_password_hash(request.password)
+    password_hash = security.get_password_hash(request.password)
         
     user = User(
         first_name=request.first_name,
@@ -54,6 +53,10 @@ def create_user(session: Session, request: CreateUserRequest) -> User:
         email=request.email,
         password_hash=password_hash,
         role=request.role,
+        github_id=request.github_id,
+        github_username=request.github_username,
+        github_access_token=request.github_access_token,
+        github_avatar_url=request.github_avatar_url,
     )
 
     session.add(user)

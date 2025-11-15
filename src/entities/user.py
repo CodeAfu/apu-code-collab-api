@@ -12,7 +12,7 @@ class UserRole(str, Enum):
     ADMIN = "admin"
 
 class User(SQLModel, table=True):
-    __tablename__ = "users"
+    __tablename__ = "users" # type: ignore
     
     id: str = SQLField(default_factory=cuid_gen.generate, primary_key=True)
     apu_id: str = SQLField(

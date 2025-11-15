@@ -5,7 +5,9 @@ from src.auth.models import PasswordValidationResponse
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-def get_password_hash(password: str) -> str:
+def get_password_hash(password: str | None) -> str:
+    if password is None:
+        return ""
     return bcrypt_context.hash(password)
 
 
@@ -13,7 +15,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt_context.verify(plain_password, hashed_password)
 
 
-def check_valid_password(password: str) -> PasswordValidationResponse:
+def check_valid_password(password: str | None) -> PasswordValidationResponse:
     # Check if password is a string
     if not isinstance(password, str):
         return PasswordValidationResponse(valid=False, message="Password must be a string")

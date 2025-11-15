@@ -75,6 +75,10 @@ def create_access_token(email: str, user_id: str, apu_id: str, role: str, expire
 
 def refresh_access_token(session: Session, refresh_token: str) -> Token:
     token_data = verify_token(refresh_token, expected_type="refresh")
+
+    if (token_data.email is None):
+        raise AuthenticationError()
+
     user = get_user_by_email(session, token_data.email)
     
     if not user:
@@ -84,6 +88,7 @@ def refresh_access_token(session: Session, refresh_token: str) -> Token:
         user.email,
         user.id,
         user.apu_id,
+        user.role,
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
@@ -144,7 +149,11 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
 
 def register_user(session: Session, request: CreateUserRequest) -> bool:
     try:
-        password_hash = security.get_password_hash(request.password)
+        password_hash = ""
+        
+        if (request.password is not None):
+            password_hash = security.get_password_hash(request.password)
+
         user = User(
             first_name=request.first_name,
             last_name=request.last_name,
@@ -152,6 +161,10 @@ def register_user(session: Session, request: CreateUserRequest) -> bool:
             email=request.email,
             password_hash=password_hash,
             role=request.role,
+            github_id=request.github_id,
+            github_username=request.github_username,
+            github_access_token=request.github_access_token,
+            github_avatar_url=request.github_avatar_url,
         )
         session.add(user)
         session.commit()

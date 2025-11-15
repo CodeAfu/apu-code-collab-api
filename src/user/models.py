@@ -1,7 +1,8 @@
 # Requests
 from pydantic import BaseModel, EmailStr, Field
 
-from src.entities.user import User
+from src.entities.user import UserRole
+
 
 class CreateUserRequest(BaseModel):
     first_name: str = Field(min_length=1, max_length=50)
@@ -9,9 +10,12 @@ class CreateUserRequest(BaseModel):
     apu_id: str
     email: EmailStr
     password: str | None = None
-    role: str = Field(default="student")
+    role: UserRole = UserRole.STUDENT
     is_active: bool = True
-
+    github_id: int | None
+    github_username: str | None
+    github_access_token: str | None
+    github_avatar_url: str | None
 
 class GitHubUserRequest(BaseModel):
     # first_name: str = Field(min_length=1, max_length=50)
