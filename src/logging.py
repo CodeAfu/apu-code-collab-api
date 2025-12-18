@@ -1,27 +1,49 @@
+import sys
 import logging
-from enum import StrEnum
+from src.config import settings
+
+from loguru import logger
 
 
-LOG_FORMAT_DEBUG = "%(levelname)s:%(message)s:%(pathname)s:%(funcName)s:%(lineno)d"
+class InterceptHandler(logging.Handler):
+    def emit(self, record) -> None:
+        level: str | int
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level,
+            record.getMessage(),
+        )
 
 
-class LogLevels(StrEnum):
-    info = "INFO"
-    warn = "WARN"
-    error = "ERROR"
-    debug = "DEBUG"
+logLevel = logging.DEBUG if settings.is_development else logging.INFO
 
 
-def configure_logging(log_level: str = LogLevels.error):
-    log_level = str(log_level).upper()
-    log_levels = [level.value for level in LogLevels]
+def configure_logging():
+    # Remove default loguru handler
+    logger.remove()
 
-    if log_level not in log_levels:
-        logging.basicConfig(level=LogLevels.error)
-        return
+    # Add loguru handler with custom format
+    logger.add(
+        sys.stderr,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="DEBUG" if settings.is_development else "INFO",
+    )
 
-    if log_level == LogLevels.debug:
-        logging.basicConfig(level=log_level, format=LOG_FORMAT_DEBUG)
-        return
+    # Intercept all standard logging
+    logging.root.handlers = [InterceptHandler()]
+    logging.root.setLevel(logging.DEBUG if settings.is_development else logging.INFO)
 
-    logging.basicConfig(level=log_level)
+    # Intercept specific loggers
+    for name in ["uvicorn", "uvicorn.access", "uvicorn.error", "sqlalchemy.engine"]:
+        logging_logger = logging.getLogger(name)
+        logging_logger.handlers = []
+        logging_logger.propagate = True

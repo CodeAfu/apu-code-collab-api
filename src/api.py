@@ -1,18 +1,22 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from src.database.core import init_db
-from src.user.controller import user_router
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from src.auth.controller import auth_router
-from src.github_auth.controller import github_router
 from src.config import settings
+from src.database.core import init_db
+from src.github.controller import github_router
+from src.user.controller import user_router
+
+from loguru import logger
+
 
 openapi_tags = [
-    { "name": "Users", "description": "User operations" },
-    { "name": "Authentication", "description": "Authentication operations" },
-    { "name": "GitHub OAuth", "description": "GitHub Authorization" },
-    { "name": "Health Checks", "description": "Application health checks" },
+    {"name": "Users", "description": "User operations"},
+    {"name": "Authentication", "description": "Authentication operations"},
+    {"name": "GitHub OAuth", "description": "GitHub Authorization"},
+    {"name": "Health Checks", "description": "Application health checks"},
 ]
 
 
@@ -29,7 +33,11 @@ def add_routes(app: FastAPI):
 
     @app.get("/health", tags=["Health Checks"])
     async def health_check():
-        return { "message": "API is running", }
+        logger.debug("Debug LOG")
+        logger.info("API is running")
+        return {
+            "message": "API is running",
+        }
 
 
 def configure_api(app: FastAPI):
@@ -38,8 +46,7 @@ def configure_api(app: FastAPI):
         allow_origins=settings.cors_origins,
         allow_credentials=True,  # for cookies
         allow_methods=["*"],
-        allow_headers=["*"]
+        allow_headers=["*"],
     )
 
     add_routes(app)
-

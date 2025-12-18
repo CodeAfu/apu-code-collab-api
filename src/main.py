@@ -1,18 +1,17 @@
 from fastapi import FastAPI
+from loguru import logger
 
-from src.api import openapi_tags, configure_api, lifespan
-from src.logging import LogLevels, configure_logging
+from src.api import configure_api, lifespan, openapi_tags
 from src.config import settings
+from src.logging import configure_logging
 
-configure_logging(LogLevels.info)
 
 app = FastAPI(
-    openapi_tags=openapi_tags,
-    debug=settings.is_development,
-    lifespan=lifespan
+    openapi_tags=openapi_tags, debug=settings.is_development, lifespan=lifespan
 )
 
+configure_logging()
 configure_api(app)
 
 if settings.is_development:
-    print("RUNNING APPLICATION ON DEVELOPMENT ENVIRONMENT")
+    logger.info("Running application on development environment")
