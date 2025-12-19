@@ -33,8 +33,10 @@ def add_routes(app: FastAPI):
 
     @app.get("/health", tags=["Health Checks"])
     async def health_check():
-        logger.debug("Debug LOG")
-        logger.info("API is running")
+        logger.debug("Debug log from health check")
+        logger.info("Info log from health check")
+        logger.warning("Warning log from health check")
+        logger.error("Error log from health check")
         return {
             "message": "API is running",
         }

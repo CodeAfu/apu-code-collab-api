@@ -1,8 +1,9 @@
-import sys
 import logging
-from src.config import settings
+import sys
 
 from loguru import logger
+
+from src.config import settings
 
 
 class InterceptHandler(logging.Handler):
@@ -31,19 +32,26 @@ def configure_logging():
     # Remove default loguru handler
     logger.remove()
 
-    # Add loguru handler with custom format
+    # Console handler
     logger.add(
         sys.stderr,
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
         level="DEBUG" if settings.is_development else "INFO",
     )
 
-    # Intercept all standard logging
-    logging.root.handlers = [InterceptHandler()]
-    logging.root.setLevel(logging.DEBUG if settings.is_development else logging.INFO)
+    # File handler
+    logger.add(
+        "logs/app.log",
+        rotation="500 MB",
+        retention="10 days",
+        compression="zip",
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+        level="DEBUG" if settings.is_development else "INFO",
+    )
+
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
     # Intercept specific loggers
-    for name in ["uvicorn", "uvicorn.access", "uvicorn.error", "sqlalchemy.engine"]:
-        logging_logger = logging.getLogger(name)
-        logging_logger.handlers = []
-        logging_logger.propagate = True
+    for name in logging.root.manager.loggerDict:
+        logging.getLogger(name).handlers = []
+        logging.getLogger(name).propagate = True
