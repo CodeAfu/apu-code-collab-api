@@ -1,27 +1,57 @@
 import logging
-from enum import StrEnum
+import sys
+
+from loguru import logger
+
+from src.config import settings
 
 
-LOG_FORMAT_DEBUG = "%(levelname)s:%(message)s:%(pathname)s:%(funcName)s:%(lineno)d"
+class InterceptHandler(logging.Handler):
+    def emit(self, record) -> None:
+        level: str | int
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level,
+            record.getMessage(),
+        )
 
 
-class LogLevels(StrEnum):
-    info = "INFO"
-    warn = "WARN"
-    error = "ERROR"
-    debug = "DEBUG"
+logLevel = logging.DEBUG if settings.is_development else logging.INFO
 
 
-def configure_logging(log_level: str = LogLevels.error):
-    log_level = str(log_level).upper()
-    log_levels = [level.value for level in LogLevels]
+def configure_logging():
+    # Remove default loguru handler
+    logger.remove()
 
-    if log_level not in log_levels:
-        logging.basicConfig(level=LogLevels.error)
-        return
+    # Console handler
+    logger.add(
+        sys.stderr,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="DEBUG" if settings.is_development else "INFO",
+    )
 
-    if log_level == LogLevels.debug:
-        logging.basicConfig(level=log_level, format=LOG_FORMAT_DEBUG)
-        return
+    # File handler
+    logger.add(
+        "logs/app.log",
+        rotation="500 MB",
+        retention="10 days",
+        compression="zip",
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+        level="DEBUG" if settings.is_development else "INFO",
+    )
 
-    logging.basicConfig(level=log_level)
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+
+    # Intercept specific loggers
+    for name in logging.root.manager.loggerDict:
+        logging.getLogger(name).handlers = []
+        logging.getLogger(name).propagate = True
