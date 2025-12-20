@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from src.auth.controller import auth_router
 from src.config import settings
@@ -9,8 +10,7 @@ from src.database.core import init_db
 from src.github.controller import github_router
 from src.user.controller import user_router
 
-from loguru import logger
-
+from src.entities import user, refresh_token  #  noqa: F401
 
 openapi_tags = [
     {"name": "Users", "description": "User operations"},

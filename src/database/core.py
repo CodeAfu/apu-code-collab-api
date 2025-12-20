@@ -3,6 +3,8 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from src.config import settings
 
+from src.entities import user, refresh_token, github_repository  # noqa
+
 if settings.is_development:
     logger.debug(f"DATABASE_URL={settings.DATABASE_URL}")
 

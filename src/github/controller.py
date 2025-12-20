@@ -90,7 +90,6 @@ async def github_callback(
 
     # Create JWT tokens
     access_token = auth_service.create_access_token(
-        user.email,
         user.id,
         user.apu_id,
         user.role,
@@ -98,7 +97,6 @@ async def github_callback(
     )
 
     refresh_token = auth_service.create_refresh_token(
-        user.email,
         user.id,
         user.apu_id,
         user.role,

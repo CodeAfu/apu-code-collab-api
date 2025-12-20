@@ -4,16 +4,15 @@ from typing import Annotated
 import jwt
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 from loguru import logger
 
 from src.auth.models import TokenData, TokenResponse
 from src.config import settings
-from src.entities.user import User
-from src.exceptions import AuthenticationError, ConflictException, InternalException
-from src.user.models import CreateUserRequest
-from src.user.service import get_user_by_email
+from src.entities.user import User, UserRole
+from src.exceptions import AuthenticationError
+from src.user.models import RegisterUserRequest, CreateUserResponse, CreateUserRequest
+from src.user import service as user_service
 from src.utils import security
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
@@ -28,7 +27,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def authenticate_user(session: Session, email: str, password: str) -> User:
-    user = get_user_by_email(session, email)
+    user = user_service.get_user_by_email(session, email)
     if not user:
         # Constant-time dummy hash to prevent timing attacks
         security.verify_password(password, security.get_password_hash("dummy"))
@@ -47,12 +46,11 @@ def authenticate_user(session: Session, email: str, password: str) -> User:
 
 
 def create_refresh_token(
-    email: str, user_id: str, apu_id: str, role: str, expires_delta: timedelta
+    user_id: str, apu_id: str, role: str, expires_delta: timedelta
 ) -> str:
     encode = {
         "id": user_id,
-        "sub": email,
-        "apu_id": apu_id,
+        "sub": apu_id,
         "role": role,
         "type": "refresh",
         "exp": datetime.now(timezone.utc) + expires_delta,
@@ -63,12 +61,11 @@ def create_refresh_token(
 
 
 def create_access_token(
-    email: str, user_id: str, apu_id: str, role: str, expires_delta: timedelta
+    user_id: str, apu_id: str, role: str, expires_delta: timedelta
 ) -> str:
     encode = {
         "id": user_id,
-        "sub": email,
-        "apu_id": apu_id,
+        "sub": apu_id,
         "role": role,
         "type": "access",
         "exp": datetime.now(timezone.utc) + expires_delta,
@@ -81,16 +78,15 @@ def create_access_token(
 def refresh_access_token(session: Session, refresh_token: str) -> TokenResponse:
     token_data = verify_token(refresh_token, expected_type="refresh")
 
-    if token_data.email is None:
+    if token_data.apu_id is None:
         raise AuthenticationError()
 
-    user = get_user_by_email(session, token_data.email)
+    user = user_service.get_user_by_apu_id(session, token_data.apu_id)
 
     if not user:
         raise AuthenticationError()
 
     new_access_token = create_access_token(
-        user.email,
         user.id,
         user.apu_id,
         user.role,
@@ -110,11 +106,10 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
             token, settings.JWT_SECRET_KEY, algorithms=[settings.ENCRYPTION_ALGORITHM]
         )
         user_id = payload.get("id")
-        apu_id = payload.get("apu_id")
-        email = payload.get("sub")
+        apu_id = payload.get("sub")
         token_type = payload.get("type", "access")
 
-        if not all([user_id, email, apu_id]):
+        if not all([user_id, apu_id]):
             raise AuthenticationError(
                 error_code="INVALID_TOKEN",
                 message="Invalid token payload",
@@ -126,9 +121,7 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
                 message=f"Expected {expected_type} token, got {token_type}",
             )
 
-        return TokenData(
-            user_id=user_id, email=email, apu_id=apu_id, token_type=token_type
-        )
+        return TokenData(user_id=user_id, apu_id=apu_id, token_type=token_type)
     except jwt.ExpiredSignatureError as e:
         raise AuthenticationError(
             message="Token has expired", error_code="TOKEN_EXPIRED", debug=str(e)
@@ -147,39 +140,22 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
         )
 
 
-def register_user(session: Session, request: CreateUserRequest) -> bool:
-    try:
-        password_hash = ""
-
-        if request.password is not None:
-            password_hash = security.get_password_hash(request.password)
-
-        user = User(
-            first_name=request.first_name,
-            last_name=request.last_name,
-            apu_id=request.apu_id,
-            email=request.email,
-            password_hash=password_hash,
-            role=request.role,
-            github_id=request.github_id,
-            github_username=request.github_username,
-            github_access_token=request.github_access_token,
-            github_avatar_url=request.github_avatar_url,
-        )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-
-        return True
-    except IntegrityError as e:
-        session.rollback()
-        if "unique constraint" in str(e).lower():
-            raise ConflictException("Email already registered")
-        raise
-    except Exception:
-        session.rollback()
-        logger.exception(f"Failed to register user: {request.email}")
-        raise InternalException("Failed to create user")
+def register_user(session: Session, request: RegisterUserRequest) -> CreateUserResponse:
+    create_user_request = CreateUserRequest(
+        id=request.apu_id,
+        first_name=request.first_name,
+        last_name=request.last_name,
+        apu_id=request.apu_id,
+        email=request.email,
+        password=request.password,
+        role=UserRole.STUDENT,
+        is_active=True,
+        github_id=None,
+        github_username=None,
+        github_access_token=None,
+        github_avatar_url=None,
+    )
+    return user_service.create_user(session, create_user_request)
 
 
 # def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenData:
@@ -197,17 +173,15 @@ def login_for_access_token(
     user = authenticate_user(session, form_data.username, form_data.password)
 
     access_token = create_access_token(
-        user.email,
-        user.id,
         user.apu_id,
+        user.id,
         user.role,
         timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
 
     refresh_token = create_refresh_token(
-        user.email,
-        user.id,
         user.apu_id,
+        user.id,
         user.role,
         timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
