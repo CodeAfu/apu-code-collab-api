@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.entities.user import User
 from src.exceptions import UserAlreadyExistsException, UserDoesNotExistException
-from src.user.models import CreateUserRequest, CreateUserResponse
+from src.user.models import CreateUserRequest
 from src.utils import security
 from src.exceptions import ConflictException, InternalException
 
@@ -49,12 +49,12 @@ def ensure_user_is_unique(session: Session, email: str, apu_id: str) -> None:
         raise UserAlreadyExistsException()
 
 
-def create_user(session: Session, request: CreateUserRequest) -> CreateUserResponse:
+def create_user(session: Session, request: CreateUserRequest) -> User:
     try:
         password_hash = security.get_password_hash(request.password)
 
         logger.debug(f"Password hash: {password_hash}")
-        logger.info(f"Creating user: {request.email}")
+        logger.info(f"Creating user: {request.apu_id}")
 
         user = User(
             first_name=request.first_name,
@@ -71,17 +71,17 @@ def create_user(session: Session, request: CreateUserRequest) -> CreateUserRespo
         session.add(user)
         session.commit()
         session.refresh(user)
-        return CreateUserResponse.model_validate(user)
+        return user
     except IntegrityError as e:
         session.rollback()
         if "unique constraint" in str(e).lower():
             logger.error(f"Email already registered: {request.email}")
             raise ConflictException("Email already registered")
-        logger.exception(f"Failed to register user: {request.email}")
+        logger.exception(f"Failed to register user: {request.apu_id}")
         raise
     except Exception:
         session.rollback()
-        logger.exception(f"Failed to register user: {request.email}")
+        logger.exception(f"Failed to register user: {request.apu_id}")
         raise InternalException("Failed to create user")
 
 

@@ -11,7 +11,7 @@ from src.auth.models import TokenData, TokenResponse
 from src.config import settings
 from src.entities.user import User, UserRole
 from src.exceptions import AuthenticationError
-from src.user.models import RegisterUserRequest, CreateUserResponse, CreateUserRequest
+from src.user.models import RegisterUserRequest, CreateUserRequest
 from src.user import service as user_service
 from src.utils import security
 
@@ -140,7 +140,7 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
         )
 
 
-def register_user(session: Session, request: RegisterUserRequest) -> CreateUserResponse:
+def register_user(session: Session, request: RegisterUserRequest) -> User:
     create_user_request = CreateUserRequest(
         id=request.apu_id,
         first_name=request.first_name,

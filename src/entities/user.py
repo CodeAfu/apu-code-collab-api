@@ -9,6 +9,7 @@ from sqlmodel import Relationship, SQLModel
 
 if TYPE_CHECKING:
     from src.entities.refresh_token import RefreshToken
+    from src.entities.github_repository import GithubRepository
 
 cuid_gen = Cuid()
 
@@ -31,9 +32,13 @@ class User(SQLModel, table=True):
         index=True,
         default=None,
     )
-    first_name: str | None = SQLField(min_length=1, max_length=50, index=True)
-    last_name: str | None = SQLField(min_length=1, max_length=50, index=True)
-    email: str | None = SQLField(unique=True, index=True)
+    first_name: str | None = SQLField(
+        default=None, min_length=1, max_length=50, index=True
+    )
+    last_name: str | None = SQLField(
+        default=None, min_length=1, max_length=50, index=True
+    )
+    email: str | None = SQLField(default=None, unique=True, index=True)
     password_hash: str = SQLField(min_length=60, max_length=255)
     is_active: bool = SQLField(default=True)
     role: UserRole = SQLField(default=UserRole.STUDENT)
@@ -47,6 +52,7 @@ class User(SQLModel, table=True):
     updated_at: datetime = SQLField(default_factory=datetime.now)
 
     refresh_tokens: list["RefreshToken"] = Relationship(back_populates="user")
+    github_repositories: list["GithubRepository"] = Relationship(back_populates="user")
 
     @model_validator(mode="before")
     @classmethod
