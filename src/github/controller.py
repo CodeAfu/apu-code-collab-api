@@ -130,17 +130,9 @@ async def github_callback(
 
 @github_router.post("/disconnect")
 async def github_disconnect(
-    current_user: auth_service.CurrentUser, session: Session = Depends(get_session)
+    user: auth_service.CurrentActiveUser, session: Session = Depends(get_session)
 ):
     """Disconnect GitHub account from logged-in user"""
-    if not current_user.user_id:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    user = user_service.get_user(session, current_user.user_id)
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     if not user.github_id:
         raise HTTPException(status_code=400, detail="No GitHub account linked")
 
@@ -151,23 +143,16 @@ async def github_disconnect(
 
     session.add(user)
     session.commit()
+    session.refresh(user)
 
     return {"message": "GitHub account disconnected successfully"}
 
 
 @github_router.get("/status")
 async def github_status(
-    current_user: auth_service.CurrentUser, session: Session = Depends(get_session)
+    user: auth_service.CurrentActiveUser, session: Session = Depends(get_session)
 ):
     """Check if current user has GitHub account linked"""
-    if not current_user.user_id:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    user = user_service.get_user(session, current_user.user_id)
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     return {
         "connected": user.github_id is not None,
         "github_username": user.github_username,

@@ -40,10 +40,15 @@ def is_unique_apu_id(session: Session, apu_id: str) -> bool:
     return session.exec(select(User).where((User.apu_id == apu_id))).first() is None
 
 
-def ensure_user_is_unique(session: Session, email: str, apu_id: str) -> None:
-    user = session.exec(
-        select(User).where((User.email == email) | (User.apu_id == apu_id))
-    ).first()
+def ensure_user_is_unique(session: Session, email: str | None, apu_id: str) -> None:
+    conditions = [User.apu_id == apu_id]
+
+    if email is not None:
+        conditions.append(User.email == email)
+
+    statement = select(User).where(*conditions)
+
+    user = session.exec(statement).first()
 
     if user:
         raise UserAlreadyExistsException()

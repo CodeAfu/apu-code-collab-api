@@ -4,14 +4,15 @@ from typing import Annotated
 import jwt
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlmodel import Session
 from loguru import logger
+from sqlmodel import Session, select
 
 from src.auth.models import TokenData, TokenResponse
+from src.database.core import get_session
 from src.config import settings
-from src.entities.user import User, UserRole
+from src.entities.refresh_token import RefreshToken
+from src.entities.user import User
 from src.exceptions import AuthenticationError
-from src.user.models import RegisterUserRequest, CreateUserRequest
 from src.user import service as user_service
 from src.utils import security
 
@@ -26,14 +27,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return security.verify_password(plain_password, hashed_password)
 
 
-def authenticate_user(session: Session, email: str, password: str) -> User:
-    user = user_service.get_user_by_email(session, email)
+def authenticate_user(session: Session, apu_id: str, password: str) -> User:
+    user = user_service.get_user_by_apu_id(session, apu_id)
     if not user:
         # Constant-time dummy hash to prevent timing attacks
         security.verify_password(password, security.get_password_hash("dummy"))
         raise AuthenticationError(
             message="Invalid Email or Password",
-            debug=f"User with email '{email}' not found",
+            debug=f"User with APU ID '{apu_id}' not found",
         )
 
     if not security.verify_password(password, user.password_hash):
@@ -75,14 +76,43 @@ def create_access_token(
     )
 
 
-def refresh_access_token(session: Session, refresh_token: str) -> TokenResponse:
-    token_data = verify_token(refresh_token, expected_type="refresh")
+def refresh_access_token(session: Session, old_token_str: str) -> TokenResponse:
+    token_data = verify_token(old_token_str, expected_type="refresh")
 
     if token_data.apu_id is None:
-        raise AuthenticationError()
+        raise AuthenticationError(
+            error_code="TOKEN_REVOKED",
+            message="Refresh token is invalid or revoked",
+            debug=f"Token ID missing from token: {old_token_str}",
+        )
+
+    db_token = session.exec(
+        select(RefreshToken).where(
+            RefreshToken.token == old_token_str,
+            RefreshToken.revoked == False,  # noqa
+        )
+    ).first()
+
+    if not db_token:
+        raise AuthenticationError(
+            error_code="TOKEN_REVOKED", message="Refresh token is invalid or revoked"
+        )
+
+    logger.info(f"Refresh token: {old_token_str}")
+    logger.info(f"DB token: {db_token}")
+    logger.info(f"Token match: {db_token.token == old_token_str}")
+
+    expiry = db_token.expires_at
+
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+
+    if db_token.expires_at < datetime.now(timezone.utc):
+        raise AuthenticationError(
+            error_code="TOKEN_EXPIRED", message="Refresh token has expired"
+        )
 
     user = user_service.get_user_by_apu_id(session, token_data.apu_id)
-
     if not user:
         raise AuthenticationError()
 
@@ -94,10 +124,27 @@ def refresh_access_token(session: Session, refresh_token: str) -> TokenResponse:
     )
 
     return TokenResponse(
-        access_token=new_access_token,
-        refresh_token=refresh_token,  # Reuse the same refresh token
-        token_type="bearer",
+        access_token=new_access_token, refresh_token=old_token_str, token_type="Bearer"
     )
+
+
+def revoke_refresh_token(session: Session, refresh_token: str) -> None:
+    db_token = session.exec(
+        select(RefreshToken).where(RefreshToken.token == refresh_token)
+    ).first()
+
+    if not db_token:
+        logger.warning("Refresh token not found")
+        raise AuthenticationError(
+            error_code="TOKEN_REVOKED",
+            message="Refresh token is invalid or revoked",
+        )
+
+    db_token.revoked = True
+    db_token.revoked_at = datetime.now(timezone.utc)
+    session.add(db_token)
+    session.commit()
+    logger.info("Refresh token revoked successfully")
 
 
 def verify_token(token: str, expected_type: str = "access") -> TokenData:
@@ -140,30 +187,32 @@ def verify_token(token: str, expected_type: str = "access") -> TokenData:
         )
 
 
-def register_user(session: Session, request: RegisterUserRequest) -> User:
-    create_user_request = CreateUserRequest(
-        id=request.apu_id,
-        first_name=request.first_name,
-        last_name=request.last_name,
-        apu_id=request.apu_id,
-        email=request.email,
-        password=request.password,
-        role=UserRole.STUDENT,
-        is_active=True,
-        github_id=None,
-        github_username=None,
-        github_access_token=None,
-        github_avatar_url=None,
-    )
-    return user_service.create_user(session, create_user_request)
-
-
 # def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenData:
-def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> TokenData:
-    return verify_token(token)
+def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    session: Session = Depends(get_session),
+) -> User:
+    token_data = verify_token(token)
+    user = session.get(User, token_data.user_id)
+
+    if not user:
+        raise AuthenticationError(
+            message="User not found",
+            error_code="USER_NOT_FOUND",
+            debug=f"User with ID '{token_data.user_id}' not found",
+        )
+
+    if not user.is_active:
+        raise AuthenticationError(
+            message="User is not active",
+            error_code="USER_NOT_ACTIVE",
+            debug=f"User with ID '{token_data.user_id}' is not active",
+        )
+
+    return user
 
 
-CurrentUser = Annotated[TokenData, Depends(get_current_user)]
+CurrentActiveUser = Annotated[User, Depends(get_current_user)]
 
 
 def login_for_access_token(
@@ -173,19 +222,37 @@ def login_for_access_token(
     user = authenticate_user(session, form_data.username, form_data.password)
 
     access_token = create_access_token(
-        user.apu_id,
-        user.id,
-        user.role,
-        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        user_id=user.id,
+        apu_id=user.apu_id,
+        role=user.role,
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
 
     refresh_token = create_refresh_token(
-        user.apu_id,
-        user.id,
-        user.role,
-        timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        user_id=user.id,
+        apu_id=user.apu_id,
+        role=user.role,
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
 
-    return TokenResponse(
-        access_token=access_token, refresh_token=refresh_token, token_type="bearer"
-    )
+    try:
+        db_refresh_token = RefreshToken(
+            token=refresh_token,
+            user_id=user.id,
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            revoked=False,
+        )
+        session.add(db_refresh_token)
+        session.commit()
+        session.refresh(db_refresh_token)
+        return TokenResponse(
+            access_token=access_token, refresh_token=refresh_token, token_type="Bearer"
+        )
+    except Exception as e:
+        logger.error(f"Error creating refresh token: {str(e)}")
+        raise AuthenticationError(
+            message="Error creating refresh token",
+            error_code="REFRESH_TOKEN_CREATION_FAILED",
+            debug=str(e),
+        )

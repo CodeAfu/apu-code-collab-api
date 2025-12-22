@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from cuid2 import Cuid
 from pydantic import model_validator
 from sqlmodel import Field as SQLField
-from sqlmodel import Relationship, SQLModel
+from sqlmodel import Relationship, SQLModel, Column, DateTime
 
 if TYPE_CHECKING:
     from src.entities.refresh_token import RefreshToken
@@ -48,8 +48,12 @@ class User(SQLModel, table=True):
     github_access_token: str | None = SQLField(min_length=1, max_length=200)
     github_avatar_url: str | None = SQLField(min_length=1, max_length=200)
 
-    created_at: datetime = SQLField(default_factory=datetime.now)
-    updated_at: datetime = SQLField(default_factory=datetime.now)
+    created_at: datetime = SQLField(
+        default_factory=datetime.now, sa_column=Column(DateTime(timezone=True))
+    )
+    updated_at: datetime = SQLField(
+        default_factory=datetime.now, sa_column=Column(DateTime(timezone=True))
+    )
 
     refresh_tokens: list["RefreshToken"] = Relationship(back_populates="user")
     github_repositories: list["GithubRepository"] = Relationship(back_populates="user")
