@@ -26,11 +26,27 @@ async def lifespan(app: FastAPI):
 
 
 def add_routes(app: FastAPI):
+    """
+    Register application routes and a /health endpoint on the provided FastAPI app.
+    
+    Includes the user and authentication routers with OpenAPI tags "Users" and "Authentication",
+    and adds a GET /health endpoint under the "Health Checks" tag that returns a simple status message
+    and emits logs at multiple levels.
+    
+    Parameters:
+        app (FastAPI): The FastAPI application to attach routers and endpoints to.
+    """
     app.include_router(user_router, tags=["Users"])
     app.include_router(auth_router, tags=["Authentication"])
 
     @app.get("/health", tags=["Health Checks"])
     async def health_check():
+        """
+        Return a simple health status payload for the API.
+        
+        Returns:
+            dict: A JSON-serializable mapping containing "message" with value "API is running".
+        """
         logger.debug("Debug log from health check")
         logger.info("Info log from health check")
         logger.warning("Warning log from health check")

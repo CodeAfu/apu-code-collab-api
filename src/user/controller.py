@@ -57,6 +57,15 @@ async def get_user(
     session: Session = Depends(get_session),
 ) -> UserRead:
     # await github_service.persist_github_user_profile(session, user)
+    """
+    Return the authenticated user's public profile as a UserRead model.
+    
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+    
+    Returns:
+        UserRead: The user's data with `is_github_linked` set to `true` if a GitHub access token is present, `false` otherwise.
+    """
     return UserRead(
         **user.model_dump(), is_github_linked=bool(user.github_access_token)
     )
@@ -72,6 +81,18 @@ async def link_github_account(
     payload: GitHubLinkRequest,
     session: Session = Depends(get_session),
 ) -> dict:
+    """
+    Link the authenticated user's GitHub account to their local user record.
+    
+    This exchanges the provided GitHub OAuth code for an access token, retrieves the GitHub profile, stores GitHub-related fields (access token, GitHub ID, username, and avatar URL) on the authenticated user, and persists those changes to the database.
+    
+    Parameters:
+        payload (GitHubLinkRequest): Payload containing the GitHub OAuth `code` to exchange for an access token.
+        user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be linked.
+    
+    Returns:
+        dict: A message confirming successful linking, e.g. `{"message": "GitHub account linked successfully"}`.
+    """
     gh_token = await github_service.exchange_code_for_token(payload.code)
     gh_profile = await github_service.get_github_user_profile(gh_token)
 
