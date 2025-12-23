@@ -150,7 +150,6 @@ def create_user(session: Session, request: CreateUserRequest) -> User:
     try:
         password_hash = security.get_password_hash(request.password)
 
-        logger.debug(f"Password hash: {password_hash}")
         logger.info(f"Creating user: {request.apu_id}")
 
         user = User(

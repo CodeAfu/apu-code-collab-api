@@ -77,7 +77,7 @@ def authenticate_user(session: Session, apu_id: str, password: str) -> User:
     if not security.verify_password(password, user.password_hash):
         raise AuthenticationError(
             message="Invalid Email or Password",
-            debug=f"Password entry '{password}' does not match the password hash",
+            debug="Password entry does not match the password hash",
         )
 
     return user
