@@ -1,10 +1,9 @@
 import httpx
-from fastapi import Depends, status
+from fastapi import status
 from loguru import logger
 from sqlmodel import Session
 
 from src.config import settings
-from src.database.core import get_session
 from src.entities.user import User
 from src.exceptions import AuthenticationError
 
@@ -12,13 +11,13 @@ from src.exceptions import AuthenticationError
 async def exchange_code_for_token(code: str) -> str:
     """
     Exchange a GitHub OAuth authorization code for the user's access token.
-    
+
     Parameters:
         code (str): The authorization code received from GitHub's OAuth flow.
-    
+
     Returns:
         access_token (str): The OAuth access token associated with the provided code.
-    
+
     Raises:
         AuthenticationError: If GitHub returns a non-200 response, the response lacks an access token, or a network error occurs during the token exchange.
     """
@@ -70,13 +69,13 @@ async def exchange_code_for_token(code: str) -> str:
 async def get_github_user_profile(access_token: str) -> dict:
     """
     Retrieve the authenticated GitHub user's profile using the provided OAuth access token.
-    
+
     Parameters:
         access_token (str): GitHub OAuth access token sent in the Authorization header.
-    
+
     Returns:
         dict: Parsed JSON object representing the GitHub user profile.
-    
+
     Raises:
         AuthenticationError: If GitHub responds with a non-200 status or if a network/request error occurs (network errors are raised with status_code=502 and error_code="GITHUB_USER_FETCH_NETWORK_ERROR").
     """
@@ -106,11 +105,11 @@ async def get_github_user_profile(access_token: str) -> dict:
 async def persist_github_user_profile(session: Session, user: User):
     """
     Persist GitHub profile fields into the provided User and save the updated user to the database.
-    
+
     Fetches the GitHub profile using the user's `github_access_token`, updates `github_id`, `github_username`,
     and `github_avatar_url` on the given User, and commits the changes. If the user has no `github_access_token`,
     the function returns without altering the session.
-    
+
     Parameters:
         session (Session): Database session used to persist changes.
         user (User): User entity to update; must have `github_access_token` set for profile retrieval.
@@ -128,3 +127,4 @@ async def persist_github_user_profile(session: Session, user: User):
     session.refresh(user)
 
     logger.info(f"GitHub profile persisted successfully: {gh_profile}")
+

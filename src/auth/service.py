@@ -20,14 +20,51 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 
 def get_password_hash(password: str) -> str:
+    """
+    Hash a plain text password using bcrypt.
+
+    Parameters:
+        password (str): The plain text password.
+
+    Returns:
+        str: The hashed password string.
+    """
     return security.get_password_hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify a plain text password against a hashed password.
+
+    Parameters:
+        plain_password (str): The user-provided plain text password.
+        hashed_password (str): The stored bcrypt hash.
+
+    Returns:
+        bool: True if they match, False otherwise.
+    """
     return security.verify_password(plain_password, hashed_password)
 
 
 def authenticate_user(session: Session, apu_id: str, password: str) -> User:
+    """
+    Verify user credentials and return the user entity if valid.
+
+    This function includes protection against timing attacks. If the user is not found,
+    it performs a dummy hash verification to ensure the response time is similar
+    to a failed password check.
+
+    Parameters:
+        session (Session): The database session.
+        apu_id (str): The unique APU ID (e.g., TP number).
+        password (str): The plain text password.
+
+    Returns:
+        User: The authenticated user entity.
+
+    Raises:
+        AuthenticationError: If the user is not found or the password does not match.
+    """
     user = user_service.get_user_by_apu_id(session, apu_id)
     if not user:
         # Constant-time dummy hash to prevent timing attacks
@@ -49,6 +86,18 @@ def authenticate_user(session: Session, apu_id: str, password: str) -> User:
 def create_refresh_token(
     user_id: str, apu_id: str, role: str, expires_delta: timedelta
 ) -> str:
+    """
+    Generate a JWT refresh token.
+
+    Parameters:
+        user_id (str): The database ID of the user.
+        apu_id (str): The user's APU ID (subject).
+        role (str): The user's role.
+        expires_delta (timedelta): How long until the token expires.
+
+    Returns:
+        str: Encoded JWT string.
+    """
     encode = {
         "id": user_id,
         "sub": apu_id,
@@ -64,6 +113,18 @@ def create_refresh_token(
 def create_access_token(
     user_id: str, apu_id: str, role: str, expires_delta: timedelta
 ) -> str:
+    """
+    Generate a JWT access token.
+
+    Parameters:
+        user_id (str): The database ID of the user.
+        apu_id (str): The user's APU ID (subject).
+        role (str): The user's role.
+        expires_delta (timedelta): How long until the token expires.
+
+    Returns:
+        str: Encoded JWT string.
+    """
     encode = {
         "id": user_id,
         "sub": apu_id,
@@ -77,6 +138,22 @@ def create_access_token(
 
 
 def refresh_access_token(session: Session, old_token_str: str) -> TokenResponse:
+    """
+    Validate a refresh token and issue a new access token.
+
+    This implements token rotation or validation logic. It checks if the token exists
+    in the database, hasn't been revoked, and hasn't expired.
+
+    Parameters:
+        session (Session): The database session.
+        old_token_str (str): The incoming refresh token string.
+
+    Returns:
+        TokenResponse: A new access token and the (potentially rotated) refresh token.
+
+    Raises:
+        AuthenticationError: If the token is invalid, revoked, expired, or missing required claims.
+    """
     token_data = verify_token(old_token_str, expected_type="refresh")
 
     if token_data.apu_id is None:
@@ -129,6 +206,16 @@ def refresh_access_token(session: Session, old_token_str: str) -> TokenResponse:
 
 
 def revoke_refresh_token(session: Session, refresh_token: str) -> None:
+    """
+    Revoke a refresh token, preventing its future use.
+
+    Parameters:
+        session (Session): The database session.
+        refresh_token (str): The token string to revoke.
+
+    Raises:
+        AuthenticationError: If the token is not found in the database.
+    """
     db_token = session.exec(
         select(RefreshToken).where(RefreshToken.token == refresh_token)
     ).first()
@@ -148,6 +235,19 @@ def revoke_refresh_token(session: Session, refresh_token: str) -> None:
 
 
 def verify_token(token: str, expected_type: str = "access") -> TokenData:
+    """
+    Decode and validate a JWT token's signature, type, and payload.
+
+    Parameters:
+        token (str): The JWT string.
+        expected_type (str): The expected 'type' claim (e.g., 'access' or 'refresh').
+
+    Returns:
+        TokenData: Extracted payload data (user_id, apu_id, etc.).
+
+    Raises:
+        AuthenticationError: If the token is expired, invalid, or has the wrong type/payload.
+    """
     try:
         payload = jwt.decode(
             token, settings.JWT_SECRET_KEY, algorithms=[settings.ENCRYPTION_ALGORITHM]
@@ -192,6 +292,21 @@ def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     session: Session = Depends(get_session),
 ) -> User:
+    """
+    FastAPI Dependency: Retrieve the currently authenticated user from the Bearer token.
+
+    This validates the access token and checks if the user exists and is active.
+
+    Parameters:
+        token (str): The JWT access token (injected via OAuth2Bearer).
+        session (Session): The database session.
+
+    Returns:
+        User: The active user entity associated with the token.
+
+    Raises:
+        AuthenticationError: If the user is not found or is inactive.
+    """
     token_data = verify_token(token)
     user = session.get(User, token_data.user_id)
 
@@ -219,6 +334,19 @@ def login_for_access_token(
     session: Session,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
 ) -> TokenResponse:
+    """
+    Perform the full login flow: authenticate user, generate tokens, and persist the refresh token.
+
+    Parameters:
+        session (Session): The database session.
+        form_data (OAuth2PasswordRequestForm): Contains username and password.
+
+    Returns:
+        TokenResponse: The access token and refresh token.
+
+    Raises:
+        AuthenticationError: If credentials are invalid or token persistence fails.
+    """
     user = authenticate_user(session, form_data.username, form_data.password)
 
     access_token = create_access_token(

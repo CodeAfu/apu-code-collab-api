@@ -30,6 +30,21 @@ unknown_error_message = "Unknown error occurred"
     response_model_exclude={"password_hash"},
 )
 async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
+    """
+    Retrieve a list of all users in the system.
+
+    This endpoint is restricted to development environments only. Attempting to access
+    it in production will result in a 403 Forbidden error.
+
+    Parameters:
+        session (Session): The database session dependency.
+
+    Returns:
+        Sequence[User]: A list of all user objects stored in the database.
+
+    Raises:
+        HTTPException(403): If the application is running in a non-development environment.
+    """
     # TODO: Protect this better
     if not settings.is_development:
         raise HTTPException(
@@ -59,10 +74,10 @@ async def get_user(
     # await github_service.persist_github_user_profile(session, user)
     """
     Return the authenticated user's public profile as a UserRead model.
-    
+
     Parameters:
         user (auth_service.CurrentActiveUser): The currently authenticated user.
-    
+
     Returns:
         UserRead: The user's data with `is_github_linked` set to `true` if a GitHub access token is present, `false` otherwise.
     """
@@ -83,13 +98,13 @@ async def link_github_account(
 ) -> dict:
     """
     Link the authenticated user's GitHub account to their local user record.
-    
+
     This exchanges the provided GitHub OAuth code for an access token, retrieves the GitHub profile, stores GitHub-related fields (access token, GitHub ID, username, and avatar URL) on the authenticated user, and persists those changes to the database.
-    
+
     Parameters:
         payload (GitHubLinkRequest): Payload containing the GitHub OAuth `code` to exchange for an access token.
         user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be linked.
-    
+
     Returns:
         dict: A message confirming successful linking, e.g. `{"message": "GitHub account linked successfully"}`.
     """
@@ -124,6 +139,22 @@ async def create_user(
     create_request: CreateUserRequest,
     session: Session = Depends(get_session),
 ) -> User:
+    """
+    Register a new user in the system.
+
+    This endpoint validates the uniqueness of the provided email and APU ID before
+    creating the user record.
+
+    Parameters:
+        create_request (CreateUserRequest): The payload containing user registration details (email, APU ID, password, etc.).
+        session (Session): The database session dependency.
+
+    Returns:
+        User: The newly created user object.
+
+    Raises:
+        HTTPException(400): If the email or APU ID is already in use.
+    """
     service.ensure_user_is_unique(session, create_request.email, create_request.apu_id)
     return service.create_user(session, create_request)
 
@@ -137,4 +168,17 @@ async def create_user(
 async def delete_user(
     request: Request, user_id: str, session: Session = Depends(get_session)
 ):
+    """
+    Delete a user from the system by their unique ID.
+
+    Parameters:
+        user_id (str): The unique identifier (CUID) of the user to delete.
+        session (Session): The database session dependency.
+
+    Returns:
+        User: The user object that was deleted.
+
+    Raises:
+        HTTPException(404): If no user is found with the provided ID.
+    """
     return service.delete_user(session, user_id)
