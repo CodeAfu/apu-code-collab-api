@@ -7,7 +7,6 @@ from loguru import logger
 from src.auth.controller import auth_router
 from src.config import settings
 from src.database.core import init_db
-from src.github.controller import github_router
 from src.user.controller import user_router
 
 from src.entities import user, refresh_token  #  noqa: F401
@@ -29,7 +28,6 @@ async def lifespan(app: FastAPI):
 def add_routes(app: FastAPI):
     app.include_router(user_router, tags=["Users"])
     app.include_router(auth_router, tags=["Authentication"])
-    app.include_router(github_router, tags=["GitHub OAuth"])
 
     @app.get("/health", tags=["Health Checks"])
     async def health_check():

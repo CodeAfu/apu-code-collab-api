@@ -2,7 +2,6 @@ from loguru import logger
 from sqlmodel import Session, SQLModel, create_engine
 
 from src.config import settings
-from src.entities import github_repository, refresh_token, user  # noqa
 
 if settings.is_development:
     logger.debug(f"DATABASE_URL={settings.DATABASE_URL}")
