@@ -6,6 +6,25 @@ from pydantic import BaseModel, EmailStr
 from src.entities.user import UserRole
 
 
+class UserRead(BaseModel):
+    id: str
+    apu_id: str
+    first_name: str | None
+    last_name: str | None
+    email: str | None
+    is_active: bool
+    role: UserRole
+
+    # Github Public Info
+    github_id: int | None
+    github_username: str | None
+    github_avatar_url: str | None
+    is_github_linked: bool
+
+    created_at: datetime
+    updated_at: datetime
+
+
 class RegisterUserRequest(BaseModel):
     apu_id: str
     password: str

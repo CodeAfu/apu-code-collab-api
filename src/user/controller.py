@@ -3,13 +3,17 @@ from typing import Sequence
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session
+from loguru import logger
 
+from src.auth import service as auth_service
 from src.config import settings
 from src.database.core import get_session
 from src.entities.user import User
+from src.github.models import GitHubLinkRequest
+from src.github import service as github_service
 from src.rate_limiter import limiter
 from src.user import service
-from src.user.models import CreateUserRequest
+from src.user.models import CreateUserRequest, UserRead
 
 load_dotenv()
 
@@ -41,16 +45,70 @@ async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
 
 
 @user_router.get(
-    "/{user_id}",
-    response_model=User,
+    "/me",
+    response_model=UserRead,
     response_model_exclude_none=True,
-    response_model_exclude={"password_hash"},
+    response_model_exclude={"password_hash", "github_access_token"},
 )
-@limiter.limit("1/second")
+@limiter.limit("60/minute")
 async def get_user(
-    request: Request, user_id: str, session: Session = Depends(get_session)
-) -> User:
-    return service.get_user(session, user_id)
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+) -> UserRead:
+    # await github_service.persist_github_user_profile(session, user)
+    """
+    Return the authenticated user's public profile as a UserRead model.
+    
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+    
+    Returns:
+        UserRead: The user's data with `is_github_linked` set to `true` if a GitHub access token is present, `false` otherwise.
+    """
+    return UserRead(
+        **user.model_dump(), is_github_linked=bool(user.github_access_token)
+    )
+
+
+@user_router.post(
+    "/me/github/link",
+)
+# @limiter.limit("10/hour")
+async def link_github_account(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    payload: GitHubLinkRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    """
+    Link the authenticated user's GitHub account to their local user record.
+    
+    This exchanges the provided GitHub OAuth code for an access token, retrieves the GitHub profile, stores GitHub-related fields (access token, GitHub ID, username, and avatar URL) on the authenticated user, and persists those changes to the database.
+    
+    Parameters:
+        payload (GitHubLinkRequest): Payload containing the GitHub OAuth `code` to exchange for an access token.
+        user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be linked.
+    
+    Returns:
+        dict: A message confirming successful linking, e.g. `{"message": "GitHub account linked successfully"}`.
+    """
+    gh_token = await github_service.exchange_code_for_token(payload.code)
+    gh_profile = await github_service.get_github_user_profile(gh_token)
+
+    logger.info(f"GitHub Profile Retrieved: {gh_profile}")
+    user.github_access_token = gh_token
+    user.github_id = gh_profile["id"]
+    user.github_username = gh_profile["login"]
+    user.github_avatar_url = gh_profile.get("avatar_url")
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    logger.info(f"User {user.id} linked GitHub account successfully")
+
+    return {"message": "GitHub account linked successfully"}
 
 
 @user_router.post(

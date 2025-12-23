@@ -24,10 +24,9 @@ class Settings(BaseSettings):
     # GITHUB_WEBHOOK_URL: str
 
     # GitHub App
-    GITHUB_APP_CLIENT_ID: str
-    GITHUB_APP_CLIENT_SECRET: str
-
-    GITHUB_CALLBACK_URL: str
+    GITHUB_CLIENT_ID: str
+    GITHUB_CLIENT_SECRET: str
+    # GITHUB_CALLBACK_URL: str
 
     # Railway
     RAILWAY_INTERNAL: str | None = None
