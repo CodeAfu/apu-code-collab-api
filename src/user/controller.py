@@ -1,7 +1,7 @@
 from typing import Sequence
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlmodel import Session
 from loguru import logger
 
@@ -9,7 +9,7 @@ from src.auth import service as auth_service
 from src.config import settings
 from src.database.core import get_session
 from src.entities.user import User
-from src.github.models import GitHubLinkRequest
+from src.github.models import GitHubLinkRequest, PaginatedRepoResponse
 from src.github import service as github_service
 from src.rate_limiter import limiter
 from src.user import service
@@ -87,46 +87,6 @@ async def get_user(
 
 
 @user_router.post(
-    "/me/github/link",
-)
-# @limiter.limit("10/hour")
-async def link_github_account(
-    request: Request,
-    user: auth_service.CurrentActiveUser,
-    payload: GitHubLinkRequest,
-    session: Session = Depends(get_session),
-) -> dict:
-    """
-    Link the authenticated user's GitHub account to their local user record.
-
-    This exchanges the provided GitHub OAuth code for an access token, retrieves the GitHub profile, stores GitHub-related fields (access token, GitHub ID, username, and avatar URL) on the authenticated user, and persists those changes to the database.
-
-    Parameters:
-        payload (GitHubLinkRequest): Payload containing the GitHub OAuth `code` to exchange for an access token.
-        user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be linked.
-
-    Returns:
-        dict: A message confirming successful linking, e.g. `{"message": "GitHub account linked successfully"}`.
-    """
-    gh_token = await github_service.exchange_code_for_token(payload.code)
-    gh_profile = await github_service.get_github_user_profile(gh_token)
-
-    logger.info(f"GitHub Profile Retrieved: {gh_profile}")
-    user.github_access_token = gh_token
-    user.github_id = gh_profile["id"]
-    user.github_username = gh_profile["login"]
-    user.github_avatar_url = gh_profile.get("avatar_url")
-
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-
-    logger.info(f"User {user.id} linked GitHub account successfully")
-
-    return {"message": "GitHub account linked successfully"}
-
-
-@user_router.post(
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=User,
@@ -182,3 +142,122 @@ async def delete_user(
         HTTPException(404): If no user is found with the provided ID.
     """
     return service.delete_user(session, user_id)
+
+
+@user_router.post(
+    "/me/github/link",
+)
+# @limiter.limit("10/hour")
+async def link_github_account(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    payload: GitHubLinkRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    """
+    Link the authenticated user's GitHub account to their local user record.
+
+    This exchanges the provided GitHub OAuth code for an access token, retrieves the GitHub profile, stores GitHub-related fields (access token, GitHub ID, username, and avatar URL) on the authenticated user, and persists those changes to the database.
+
+    Parameters:
+        payload (GitHubLinkRequest): Payload containing the GitHub OAuth `code` to exchange for an access token.
+        user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be linked.
+
+    Returns:
+        dict: A message confirming successful linking, e.g. `{"message": "GitHub account linked successfully"}`.
+    """
+    gh_token = await github_service.exchange_code_for_token(payload.code)
+    gh_profile = await github_service.get_github_user_profile(gh_token)
+
+    logger.info(f"GitHub Profile Retrieved: {gh_profile}")
+    user.github_access_token = gh_token
+    user.github_id = gh_profile["id"]
+    user.github_username = gh_profile["login"]
+    user.github_avatar_url = gh_profile.get("avatar_url")
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    logger.info(f"User {user.id} linked GitHub account successfully")
+
+    return {"message": "GitHub account linked successfully"}
+
+
+@user_router.get(
+    "/me/github/unlink",
+    status_code=status.HTTP_200_OK,
+    response_model=dict,
+    response_model_exclude_none=True,
+)
+@limiter.limit("10/minute")
+async def unlink_github_account(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+):
+    """
+    Unlink the authenticated user's GitHub account from their local user record.
+
+    This removes the GitHub-related fields (access token, GitHub ID, username, and avatar URL) from the authenticated user, and persists those changes to the database.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be unlinked.
+        session (Session): The database session dependency.
+
+    Returns:
+        dict: A message confirming successful unlinking, e.g. `{"message": "GitHub account unlinked successfully"}`.
+    """
+    if user.github_access_token:
+        logger.info(f"Revoking GitHub token for user {user.id}...")
+        await github_service.revoke_access_token(user.github_access_token)
+
+    user.github_access_token = None
+    user.github_id = None
+    user.github_username = None
+    user.github_avatar_url = None
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    logger.info(f"User {user.id} unlinked GitHub account successfully")
+
+    return {"message": "GitHub account unlinked successfully"}
+
+
+@user_router.get(
+    "/me/github/repos",
+    response_model=PaginatedRepoResponse,
+)
+@limiter.limit("10/minute")
+async def get_github_repos(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    size: int = Query(20, ge=1, le=100, description="Items per page"),
+):
+    """
+    Retrieve a paginated list of repositories for the authenticated user.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        page (int): The page number to fetch (1-based).
+        size (int): The number of items per page.
+
+    Returns:
+        PaginatedRepoResponse: A paginated response containing the user's repositories.
+    """
+    if not user.github_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub access token required",
+        )
+
+    # Pass the pagination params to the service
+    return await github_service.fetch_user_repos(
+        user.github_access_token, page=page, size=size
+    )

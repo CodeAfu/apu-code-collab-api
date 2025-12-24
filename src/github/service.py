@@ -1,5 +1,5 @@
 import httpx
-from fastapi import status
+from fastapi import status, HTTPException
 from loguru import logger
 from sqlmodel import Session
 
@@ -128,3 +128,94 @@ async def persist_github_user_profile(session: Session, user: User):
 
     logger.info(f"GitHub profile persisted successfully: {gh_profile}")
 
+
+async def revoke_access_token(access_token: str) -> None:
+    """
+    Revoke a grant for an application.
+
+    This deletes the specific token and removes the application from the user's
+    authorized apps list on GitHub.
+    """
+    url = f"https://api.github.com/applications/{settings.GITHUB_CLIENT_ID}/grant"
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    body = {"access_token": access_token}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # This endpoint requires Basic Auth using Client ID and Secret
+            response = await client.request(
+                method="DELETE",
+                url=url,
+                headers=headers,
+                json=body,
+                auth=(settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET),
+            )
+
+            if response.status_code == 204:
+                logger.info("GitHub token revoked successfully.")
+            elif response.status_code == 404:
+                logger.warning("GitHub token not found or already revoked.")
+            else:
+                logger.error(
+                    f"Failed to revoke GitHub token. Status: {response.status_code}, Body: {response.text}"
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text,
+                )
+
+    except httpx.RequestError as e:
+        logger.error(f"Network error while revoking GitHub token: {str(e)}")
+
+
+async def fetch_user_repos(access_token: str, page: int, size: int) -> dict:
+    """
+    Fetch a paginated list of repositories for the authenticated user.
+
+    Parameters:
+        access_token (str): The user's GitHub access token.
+        page (int): The page number to fetch.
+        size (int): The number of items per page.
+
+    Returns:
+        dict: A dictionary containing the paginated response data.
+    """
+    url = "https://api.github.com/user/repos"
+
+    # Map API params to GitHub's expected params
+    params = {"sort": "updated", "type": "all", "per_page": size, "page": page}
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(url, headers=headers, params=params)
+
+        if response.status_code == 401:
+            logger.error("GitHub token expired or invalid")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="GitHub token invalid"
+            )
+
+        # Handle other potential GitHub errors (e.g., rate limits)
+        if response.status_code != 200:
+            logger.error(f"GitHub API Error: {response.text}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to fetch repositories from GitHub",
+            )
+
+        data = response.json()
+
+        # Check the 'Link' header to see if a 'next' page exists
+        # GitHub sends headers like: <url>; rel="next", <url>; rel="last"
+        has_next = 'rel="next"' in response.headers.get("Link", "")
+
+        return {"items": data, "page": page, "size": size, "has_next": has_next}

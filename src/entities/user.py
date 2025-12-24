@@ -10,6 +10,7 @@ from sqlmodel import Relationship, SQLModel, Column, DateTime
 if TYPE_CHECKING:
     from src.entities.refresh_token import RefreshToken
     from src.entities.github_repository import GithubRepository
+    from src.entities.university_course import UniversityCourse
 
 cuid_gen = Cuid()
 
@@ -18,6 +19,13 @@ class UserRole(str, Enum):
     STUDENT = "student"
     TEACHER = "teacher"
     ADMIN = "admin"
+
+
+class CourseYear(str, Enum):
+    YEAR_1 = "year_1"
+    YEAR_2 = "year_2"
+    YEAR_3 = "year_3"
+    YEAR_4 = "year_4"
 
 
 class User(SQLModel, table=True):
@@ -43,6 +51,11 @@ class User(SQLModel, table=True):
     is_active: bool = SQLField(default=True)
     role: UserRole = SQLField(default=UserRole.STUDENT)
 
+    university_course_id: str | None = SQLField(
+        default=None, foreign_key="university_courses.id", index=True
+    )
+    course_year: CourseYear | None = SQLField(default=None, index=True)
+
     github_id: int | None = SQLField(unique=True, index=True)
     github_username: str | None = SQLField(min_length=1, max_length=50, unique=True)
     github_access_token: str | None = SQLField(min_length=1, max_length=200)
@@ -57,6 +70,7 @@ class User(SQLModel, table=True):
 
     refresh_tokens: list["RefreshToken"] = Relationship(back_populates="user")
     github_repositories: list["GithubRepository"] = Relationship(back_populates="user")
+    university_course: "UniversityCourse" = Relationship(back_populates="users")
 
     @model_validator(mode="before")
     @classmethod

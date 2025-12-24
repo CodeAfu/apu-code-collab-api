@@ -5,7 +5,11 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
 from src.entities.user import User
-from src.exceptions import UserAlreadyExistsException, UserDoesNotExistException
+from src.exceptions import (
+    UserAlreadyExistsException,
+    UserDoesNotExistException,
+    InvalidPasswordException,
+)
 from src.user.models import CreateUserRequest
 from src.utils import security
 from src.exceptions import ConflictException, InternalException
@@ -146,10 +150,11 @@ def create_user(session: Session, request: CreateUserRequest) -> User:
     Raises:
         ConflictException: If a unique constraint violation occurs (e.g., email already exists).
         InternalException: If an unexpected error occurs during creation.
+        InvalidPasswordException: If the password is invalid.
     """
     try:
+        security.check_valid_password(request.password)
         password_hash = security.get_password_hash(request.password)
-
         logger.info(f"Creating user: {request.apu_id}")
 
         user = User(
@@ -164,6 +169,7 @@ def create_user(session: Session, request: CreateUserRequest) -> User:
             github_access_token=request.github_access_token,
             github_avatar_url=request.github_avatar_url,
         )
+
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -171,9 +177,18 @@ def create_user(session: Session, request: CreateUserRequest) -> User:
     except IntegrityError as e:
         session.rollback()
         if "unique constraint" in str(e).lower():
-            logger.error(f"Email already registered: {request.email}")
-            raise ConflictException("Email already registered")
-        logger.exception(f"Failed to register user: {request.apu_id}")
+            logger.error(
+                f"User with TP Number or Email already registered: apu_id={request.apu_id}, email={request.email}"
+            )
+            raise ConflictException(
+                message="User with given TP Number or Email already exists",
+                debug=str(e),
+            )
+        logger.error(f"Failed to register user: {request.apu_id}")
+        raise
+    except InvalidPasswordException as e:
+        session.rollback()
+        logger.error(f"Invalid password: {e}")
         raise
     except Exception:
         session.rollback()
