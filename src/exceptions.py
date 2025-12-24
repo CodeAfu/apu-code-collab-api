@@ -20,11 +20,12 @@ class ConflictException(HTTPException):
     def __init__(
         self,
         message: str = "Resource already exists",
-        error: str | None = None,
+        error_code: str | None = "CONFLICT",
+        debug: str | None = None,
     ):
-        detail = {"message": message}
-        if error and settings.is_development:
-            detail["error"] = error
+        detail = {"message": message, "error_code": error_code}
+        if debug and settings.is_development:
+            detail["debug"] = debug
 
         super().__init__(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
@@ -74,3 +75,37 @@ class AuthenticationError(HTTPException):
             detail=detail,
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+class RateLimitExceededException(HTTPException):
+    def __init__(
+        self,
+        message: str = "Rate limit exceeded",
+        error_code: str = "RATE_LIMIT_EXCEEDED",
+        debug: str | None = None,
+        status_code: int = status.HTTP_429_TOO_MANY_REQUESTS,
+    ):
+        detail = {"message": message, "error_code": error_code}
+        if debug and settings.is_development:
+            detail["debug"] = debug
+
+        super().__init__(
+            status_code=status_code,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class InvalidPasswordException(HTTPException):
+    def __init__(
+        self,
+        message: str = "Invalid password",
+        error_code: str = "INVALID_PASSWORD",
+        debug: str | None = None,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
+    ):
+        detail = {"message": message, "error_code": error_code}
+        if debug and settings.is_development:
+            detail["debug"] = debug
+
+        super().__init__(status_code=status_code, detail=detail)

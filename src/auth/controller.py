@@ -132,7 +132,7 @@ async def logout(
 
 
 @auth_router.post("/refresh", response_model=Token)
-@limiter.limit("20/hour")
+@limiter.limit("60/hour")
 async def refresh_access_token(
     request: Request,
     response: Response,
