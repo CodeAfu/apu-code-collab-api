@@ -4,7 +4,7 @@ import httpx
 from fastapi import HTTPException, status
 from loguru import logger
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 
 from src.config import settings
 from src.entities.github_repository import GithubRepository
@@ -213,7 +213,11 @@ async def fetch_user_repos(access_token: str, page: int, size: int) -> dict:
         return {"items": data, "page": page, "size": size, "has_next": has_next}
 
 
-async def get_repo_information(repo_name: str, access_token: str | None) -> dict:
+async def get_repo_information(
+    access_token: str,
+    github_username: str,
+    repo_name: str,
+) -> dict:
     """
     Fetch information about a repository.
 
@@ -223,7 +227,7 @@ async def get_repo_information(repo_name: str, access_token: str | None) -> dict
     Returns:
         dict: A dictionary containing the repository's name, description, and URL.
     """
-    url = f"https://api.github.com/repos/{repo_name}"
+    url = f"https://api.github.com/repos/{github_username}/{repo_name}"
 
     headers = {
         "Accept": "application/vnd.github+json",
@@ -321,23 +325,29 @@ async def invite_collaborator(
 ### GraphQL
 async def get_all_shared_repos_hydrated(
     session: Session,
-    token: str,  # Need a token (User's or System's) to query GitHub
+    token: str,
     limit: int = 20,
-    offset: int = 0,
-) -> list[dict]:
+    cursor: str | None = None,
+) -> dict:
     # We use limit/offset here for simplicity, but you can use cursors too
     statement = (
         select(GithubRepository)
         .options(
             selectinload(GithubRepository.user)  # type: ignore
-        )  # Eager load for owner names
+        )
+        .order_by(col(GithubRepository.id).desc())
         .limit(limit)
-        .offset(offset)
     )
+
+    if cursor:
+        statement = statement.where(GithubRepository.id > cursor)
+
     db_repos = session.exec(statement).all()
 
     if not db_repos:
-        return []
+        return {"items": [], "next_cursor": None}
+
+    next_cursor = db_repos[-1].id if len(db_repos) == limit else None
 
     # We use "Aliases" (repo_0, repo_1) to ask for multiple distinct items in one request
     query_fragments = []
@@ -381,14 +391,12 @@ async def get_all_shared_repos_hydrated(
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json={"query": full_query})
 
-        if response.status_code != 200:
-            # Handle error
-            return []
+        validate_github_response(response)
 
         result = response.json()
 
         hydrated_repos = []
-        data = result.get("data", {})
+        data = result.get("data", {}) or {}
 
         for index, db_repo in enumerate(db_repos):
             key = f"repo_{index}"
@@ -406,7 +414,7 @@ async def get_all_shared_repos_hydrated(
                     }
                 )
 
-        return hydrated_repos
+        return {"items": hydrated_repos, "next_cursor": next_cursor}
 
 
 async def fetch_user_repos_graphql(

@@ -11,17 +11,15 @@ github_router = APIRouter(
 )
 
 
-@github_router.get(
-    "/shared-repos",
-)
+@github_router.get("/repos")
 @limiter.limit("15/minute")
 async def get_shared_repos(
     request: Request,
     user: auth_service.CurrentActiveUser,
     session: Session = Depends(get_session),
-    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    cursor: str = Query(description="Cursor for pagination"),
     size: int = Query(20, ge=1, le=100, description="Items per page"),
-) -> list[dict]:
+) -> dict:
     """
     Retrieve a paginated list of repositories for the authenticated user.
 
@@ -29,11 +27,11 @@ async def get_shared_repos(
 
     Parameters:
         user (auth_service.CurrentActiveUser): The currently authenticated user.
-        page (int): The page number to fetch (1-based).
+        cursor (str): The cursor for pagination.
         size (int): The number of items per page.
 
     Returns:
-        list[dict]: A paginated response containing the user's repositories.
+        dict: A paginated response containing the user's repositories.
     """
     if not user.github_access_token:
         raise HTTPException(
@@ -43,5 +41,50 @@ async def get_shared_repos(
 
     # Pass the pagination params to the service
     return await github_service.get_all_shared_repos_hydrated(
-        session, user.github_access_token, size, page
+        session, user.github_access_token, size, cursor
+    )
+
+
+@github_router.get("/repos/{github_username}/{repo_name}")
+@limiter.limit("15/minute")
+async def get_repo_information(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    repo_name: str,
+    github_username: str,
+) -> dict:
+    """
+    Retrieve information about a repository.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        repo_name (str): The name of the repository to fetch information for.
+        github_username (str): The GitHub username of the repository owner.
+
+    Returns:
+        dict: Repository information retrieved from GitHub repository API.
+    """
+    if not user.github_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub access token required",
+        )
+
+    if not repo_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing repository name",
+        )
+
+    if not github_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing GitHub username",
+        )
+
+    return await github_service.get_repo_information(
+        user.github_access_token,
+        github_username,
+        repo_name,
     )
