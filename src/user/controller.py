@@ -1,6 +1,5 @@
 from typing import Sequence
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlmodel import Session
 from loguru import logger
@@ -15,12 +14,9 @@ from src.rate_limiter import limiter
 from src.user import service
 from src.user.models import CreateUserRequest, UserRead
 
-load_dotenv()
-
 user_router = APIRouter(
     prefix="/api/v1/users",
 )
-unknown_error_message = "Unknown error occurred"
 
 
 @user_router.get(
@@ -261,3 +257,35 @@ async def get_github_repos(
     return await github_service.fetch_user_repos(
         user.github_access_token, page=page, size=size
     )
+
+
+@user_router.get(
+    "/me/github/{repo_name}/collaborators",
+)
+@limiter.limit("10/minute")
+async def get_repo_collaborators(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    repo_name: str,
+    session: Session = Depends(get_session),
+):
+    """
+    Retrieve a list of collaborators for a given repository.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        repo_name (str): The name of the repository to fetch collaborators for.
+        session (Session): The database session dependency.
+
+    Returns:
+        list[dict]: A list of collaborator objects, each containing a `login` field.
+    """
+    if not user.github_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub access token required",
+        )
+
+    return await github_service.get_repo_collaborators(user, repo_name)

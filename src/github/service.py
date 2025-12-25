@@ -1,9 +1,15 @@
+import json
+from datetime import datetime
+
 import httpx
-from fastapi import status, HTTPException
+from fastapi import HTTPException, status
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import selectinload
+from sqlalchemy import and_, or_
+from sqlmodel import Session, select, col
 
 from src.config import settings
+from src.entities.github_repository import GithubRepository
 from src.entities.user import User
 from src.exceptions import AuthenticationError
 
@@ -22,8 +28,9 @@ async def exchange_code_for_token(code: str) -> str:
         AuthenticationError: If GitHub returns a non-200 response, the response lacks an access token, or a network error occurs during the token exchange.
     """
     headers = {
-        "Accept": "application/json",
-        "User-Agent": "apcc-api/1.0",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
     try:
         async with httpx.AsyncClient(
@@ -38,16 +45,10 @@ async def exchange_code_for_token(code: str) -> str:
                 },
             )
 
-            if response.status_code != 200:
-                logger.error(
-                    f"Failed to get access token from GitHub domain: {response}"
-                )
-                raise AuthenticationError(
-                    message="GitHub authorization failed",
-                    debug="Failed to get access token from GitHub domain",
-                )
+            validate_github_response(response)
 
             token_data = response.json()
+            logger.debug(f"Token Data: {json.dumps(token_data, indent=2)}")
             access_token = token_data.get("access_token")
 
             if not access_token:
@@ -83,6 +84,7 @@ async def get_github_user_profile(access_token: str) -> dict:
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github+json",
         "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
     try:
         async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
@@ -90,8 +92,7 @@ async def get_github_user_profile(access_token: str) -> dict:
                 "https://api.github.com/user",
             )
 
-            if response.status_code != 200:
-                raise AuthenticationError()
+            validate_github_response(response)
 
             return response.json()
     except httpx.RequestError as e:
@@ -140,6 +141,7 @@ async def revoke_access_token(access_token: str) -> None:
 
     headers = {
         "Accept": "application/vnd.github+json",
+        "User-Agent": "apu-code-collab-api/1.0",
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
@@ -155,6 +157,8 @@ async def revoke_access_token(access_token: str) -> None:
                 json=body,
                 auth=(settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET),
             )
+
+            validate_github_response(response)
 
             if response.status_code == 204:
                 logger.info("GitHub token revoked successfully.")
@@ -193,24 +197,14 @@ async def fetch_user_repos(access_token: str, page: int, size: int) -> dict:
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github+json",
+        "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(url, headers=headers, params=params)
 
-        if response.status_code == 401:
-            logger.error("GitHub token expired or invalid")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="GitHub token invalid"
-            )
-
-        # Handle other potential GitHub errors (e.g., rate limits)
-        if response.status_code != 200:
-            logger.error(f"GitHub API Error: {response.text}")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to fetch repositories from GitHub",
-            )
+        validate_github_response(response)
 
         data = response.json()
 
@@ -219,3 +213,354 @@ async def fetch_user_repos(access_token: str, page: int, size: int) -> dict:
         has_next = 'rel="next"' in response.headers.get("Link", "")
 
         return {"items": data, "page": page, "size": size, "has_next": has_next}
+
+
+async def get_repo_information(
+    access_token: str,
+    github_username: str,
+    repo_name: str,
+) -> dict:
+    """
+    Fetch information about a repository.
+
+    Parameters:
+        repo_name (str): The name of the repository to fetch information for.
+
+    Returns:
+        dict: A dictionary containing the repository's name, description, and URL.
+    """
+    url = f"https://api.github.com/repos/{github_username}/{repo_name}"
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(url, headers=headers)
+
+        validate_github_response(response)
+
+        data = response.json()
+        logger.debug(f"Repository Data: {json.dumps(data, indent=2)}")
+
+        return data
+
+
+async def get_repo_collaborators(user: User, repo_name: str) -> list[dict]:
+    """
+    Fetch a list of collaborators for a given repository.
+
+    Parameters:
+        user (User): The user object representing the authenticated user.
+        repo_name (str): The name of the repository to fetch collaborators for.
+
+    Returns:
+        list[dict]: A list of collaborator objects, each containing a `login` field.
+    """
+    url = (
+        f"https://api.github.com/repos/{user.github_username}/{repo_name}/collaborators"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {user.github_access_token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(url, headers=headers)
+
+        validate_github_response(response)
+
+        data = response.json()
+
+        return data
+
+
+async def invite_collaborator(
+    owner_token: str, owner_name: str, repo_name: str, collaborator_username: str
+) -> dict:
+    """
+    Invite a collaborator to a repository.
+
+    Parameters:
+        owner_token (str): The GitHub access token of the repository owner.
+        owner_name (str): The name of the repository owner.
+        repo_name (str): The name of the repository to invite the collaborator to.
+        collaborator_username (str): The username of the collaborator to invite.
+
+    Returns:
+        dict: A response object containing the HTTP status code and a message.
+    """
+    url = f"https://api.github.com/repos/{owner_name}/{repo_name}/collaborators/{collaborator_username}"
+
+    headers = {
+        "Authorization": f"Bearer {owner_token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    # permission can be 'pull', 'push', 'admin', 'maintain', or 'triage'
+    data = {"permission": "push"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.put(url, headers=headers, json=data)
+
+        validate_github_response(response)
+
+        logger.debug(f"Invite Response: {json.dumps(response.json(), indent=2)}")
+
+        if response.status_code == 204:
+            logger.info("User is already a collaborator.")
+            return {"message": "User is already a collaborator."}
+
+        return data
+
+
+### GraphQL
+async def get_all_shared_repos_hydrated(
+    session: Session,
+    token: str,
+    limit: int = 20,
+    cursor: str | None = None,  # TIMESTAMP|ID
+) -> dict:
+    statement = (
+        select(GithubRepository)
+        .options(
+            selectinload(GithubRepository.user)  # type: ignore
+        )
+        .order_by(
+            col(GithubRepository.created_at).desc(), col(GithubRepository.id).desc()
+        )
+        .limit(limit)
+    )
+
+    if cursor:
+        try:
+            # Split the composite cursor: "2023-01-01T12:00:00|cl..."
+            cursor_time_str, cursor_id = cursor.split("|")
+            cursor_time = datetime.fromisoformat(cursor_time_str)
+
+            # Logic: Give me items OLDER than cursor_time...
+            # ... OR items with SAME time but SMALLER (lexicographically) ID
+            statement = statement.where(
+                or_(
+                    col(GithubRepository.created_at) < cursor_time,
+                    and_(
+                        col(GithubRepository.created_at) == cursor_time,
+                        col(GithubRepository.id) < cursor_id,
+                    ),
+                )
+            )
+        except ValueError:
+            logger.warning(f"Invalid cursor: {cursor}")
+            pass
+
+    db_repos = session.exec(statement).all()
+
+    if not db_repos:
+        return {"items": [], "next_cursor": None}
+
+    next_cursor = None
+    if len(db_repos) == limit:
+        last_repo = db_repos[-1]
+        # combine time and id into one string
+        next_cursor = f"{last_repo.created_at.isoformat()}|{last_repo.id}"
+
+    # We use "Aliases" (repo_0, repo_1) to ask for multiple distinct items in one request
+    query_fragments = []
+
+    for index, repo in enumerate(db_repos):
+        owner = repo.user.github_username
+        name = repo.name
+
+        # We alias the query so we can tell which result belongs to which repo
+        fragment = f"""
+        repo_{index}: repository(owner: "{owner}", name: "{name}") {{
+            name
+            description
+            stargazerCount
+            forkCount
+            url
+            owner {{
+                login
+                avatarUrl
+            }}
+            collaborators(first: 10) {{
+                nodes {{
+                    login
+                    avatarUrl
+                }}
+            }}
+        }}
+        """
+        query_fragments.append(fragment)
+
+    full_query = f"query {{ {' '.join(query_fragments)} }}"
+
+    url = "https://api.github.com/graphql"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json={"query": full_query})
+
+        validate_github_response(response)
+
+        result = response.json()
+
+        hydrated_repos = []
+        data = result.get("data", {}) or {}
+
+        for index, db_repo in enumerate(db_repos):
+            key = f"repo_{index}"
+            gh_data = data.get(key)
+
+            # If gh_data is None, the repo might have been deleted on GitHub
+            # or permissions were lost. Handle gracefully.
+            if gh_data:
+                # Combine DB ID with live GitHub Data
+                hydrated_repos.append(
+                    {
+                        "id": db_repo.id,  # Internal DB ID
+                        "db_owner": db_repo.user.github_username,  # Internal Owner
+                        **gh_data,  # Spread the GitHub data (name, stars, collaborators, etc)
+                    }
+                )
+
+        return {"items": hydrated_repos, "next_cursor": next_cursor}
+
+
+async def fetch_user_repos_graphql(
+    access_token: str, size: int, cursor: str | None = None
+) -> dict:
+    """
+    Fetch repositories + collaborators using GraphQL cursor pagination.
+
+    Args:
+        cursor (str | None): The 'endCursor' from the previous response to fetch the next page.
+    """
+    url = "https://api.github.com/graphql"
+
+    # GraphQL Query
+    query = """
+    query($size: Int!, $cursor: String) {
+      viewer {
+        repositories(first: $size, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          nodes {
+            name
+            htmlUrl
+            description
+            updatedAt
+            collaborators(first: 5) {
+              nodes {
+                login
+                avatarUrl
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    variables = {"size": size, "cursor": cursor}
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        # GraphQL usually works best with standard JSON content type
+        "Content-Type": "application/json",
+        "User-Agent": "apu-code-collab-api/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # GraphQL is always a POST request
+        response = await client.post(
+            url, headers=headers, json={"query": query, "variables": variables}
+        )
+
+        result = response.json()
+
+        validate_github_response(response)
+
+        # GraphQL puts errors in the JSON body even on 200 OK
+        if "errors" in result:
+            logger.error(f"GraphQL Query Error: {result['errors']}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="GitHub GraphQL query failed",
+            )
+
+        repo_data = result["data"]["viewer"]["repositories"]
+
+        return {
+            "items": repo_data["nodes"],
+            "size": size,
+            "has_next": repo_data["pageInfo"]["hasNextPage"],
+            "next_cursor": repo_data["pageInfo"][
+                "endCursor"
+            ],  # Frontend must send this back for the next page
+        }
+
+
+def validate_github_response(response: httpx.Response) -> None:
+    """
+    Centralized validation for GitHub API responses.
+    Checks for Auth errors, Rate Limits, and unexpected status codes.
+
+    Parameters:
+        response: The response object from httpx.
+        success_codes: A list of status codes that should be considered "Success".
+                       Defaults to [200].
+    """
+    if response.status_code == 401:
+        logger.error("GitHub token expired or invalid")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="GitHub token invalid"
+        )
+
+    if response.status_code == 403:
+        # Check specific header to distinguish Rate Limit vs Permission error
+        if response.headers.get("x-ratelimit-remaining") == "0":
+            logger.error("GitHub Rate Limit Exceeded (Quota)")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="System busy, please try again later.",
+            )
+        # Abuse detection mechanisms often send 403 with specific text
+        if "secondary rate limit" in response.text.lower():
+            logger.error("GitHub Secondary Rate Limit Triggered")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="System busy, please try again later.",
+            )
+
+    if response.status_code == 429:
+        logger.error("GitHub Abuse Detection Triggered (429)")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="System busy, please try again later.",
+        )
+
+    if response.status_code not in range(200, 300):
+        logger.error(f"GitHub API Error: {response.status_code} - {response.text}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API returned unexpected error: {response.status_code}",
+        )
