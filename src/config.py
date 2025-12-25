@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     # GITHUB_CALLBACK_URL: str
 
     # Railway
-    RAILWAY_INTERNAL: str | None = None
-    RAILWAY_PROD: str | None = None
-    RAILWAY_STAGING: str | None = None
+    # RAILWAY_INTERNAL: str | None = None
+    # RAILWAY_PROD: str | None = None
+    # RAILWAY_STAGING: str | None = None
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

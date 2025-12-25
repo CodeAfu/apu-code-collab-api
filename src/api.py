@@ -65,4 +65,3 @@ def configure_api(app: FastAPI):
     )
 
     add_routes(app)
-
