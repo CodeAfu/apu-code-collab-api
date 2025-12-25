@@ -17,7 +17,9 @@ async def get_shared_repos(
     request: Request,
     user: auth_service.CurrentActiveUser,
     session: Session = Depends(get_session),
-    cursor: str = Query(description="Cursor for pagination"),
+    cursor: str | None = Query(
+        None, description="Cursor for pagination (TIMESTAMP|ID)"
+    ),
     size: int = Query(20, ge=1, le=100, description="Items per page"),
 ) -> dict:
     """

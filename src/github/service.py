@@ -1,9 +1,11 @@
 import json
+from datetime import datetime
 
 import httpx
 from fastapi import HTTPException, status
 from loguru import logger
 from sqlalchemy.orm import selectinload
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select, col
 
 from src.config import settings
@@ -327,27 +329,50 @@ async def get_all_shared_repos_hydrated(
     session: Session,
     token: str,
     limit: int = 20,
-    cursor: str | None = None,
+    cursor: str | None = None,  # TIMESTAMP|ID
 ) -> dict:
-    # We use limit/offset here for simplicity, but you can use cursors too
     statement = (
         select(GithubRepository)
         .options(
             selectinload(GithubRepository.user)  # type: ignore
         )
-        .order_by(col(GithubRepository.id).desc())
+        .order_by(
+            col(GithubRepository.created_at).desc(), col(GithubRepository.id).desc()
+        )
         .limit(limit)
     )
 
     if cursor:
-        statement = statement.where(GithubRepository.id > cursor)
+        try:
+            # Split the composite cursor: "2023-01-01T12:00:00|cl..."
+            cursor_time_str, cursor_id = cursor.split("|")
+            cursor_time = datetime.fromisoformat(cursor_time_str)
+
+            # Logic: Give me items OLDER than cursor_time...
+            # ... OR items with SAME time but SMALLER (lexicographically) ID
+            statement = statement.where(
+                or_(
+                    col(GithubRepository.created_at) < cursor_time,
+                    and_(
+                        col(GithubRepository.created_at) == cursor_time,
+                        col(GithubRepository.id) < cursor_id,
+                    ),
+                )
+            )
+        except ValueError:
+            logger.warning(f"Invalid cursor: {cursor}")
+            pass
 
     db_repos = session.exec(statement).all()
 
     if not db_repos:
         return {"items": [], "next_cursor": None}
 
-    next_cursor = db_repos[-1].id if len(db_repos) == limit else None
+    next_cursor = None
+    if len(db_repos) == limit:
+        last_repo = db_repos[-1]
+        # combine time and id into one string
+        next_cursor = f"{last_repo.created_at.isoformat()}|{last_repo.id}"
 
     # We use "Aliases" (repo_0, repo_1) to ask for multiple distinct items in one request
     query_fragments = []
