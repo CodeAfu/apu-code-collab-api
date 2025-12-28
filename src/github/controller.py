@@ -15,7 +15,7 @@ github_router = APIRouter(
 
 @github_router.get("/repos")
 @limiter.limit("15/minute")
-async def get_shared_repos(
+async def get_local_repos(
     request: Request,
     user: auth_service.CurrentActiveUser,
     session: Session = Depends(get_session),
@@ -45,7 +45,7 @@ async def get_shared_repos(
         )
 
     # Pass the pagination params to the service
-    return await github_service.get_all_shared_repos_hydrated(
+    return await github_service.get_all_local_repos_hydrated(
         session, user.github_access_token, size, cursor
     )
 

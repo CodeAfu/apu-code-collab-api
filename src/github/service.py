@@ -378,7 +378,7 @@ async def invite_collaborator(
 
 
 ### GraphQL
-async def get_all_shared_repos_hydrated(
+async def get_all_local_repos_hydrated(
     session: Session,
     token: str,
     limit: int = 20,
@@ -455,17 +455,17 @@ async def get_all_shared_repos_hydrated(
         repo_{index}: repository(owner: "{owner}", name: "{name}") {{
             name
             description
-            stargazerCount
-            forkCount
+            stargazer_count: stargazerCount
+            fork_count: forkCount
             url
             owner {{
                 login
-                avatarUrl
+                avatar_url: avatarUrl
             }}
             collaborators(first: 10) {{
                 nodes {{
                     login
-                    avatarUrl
+                    avatar_url: avatarUrl
                 }}
             }}
         }}
