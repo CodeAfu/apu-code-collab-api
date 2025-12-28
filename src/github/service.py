@@ -103,6 +103,56 @@ async def get_github_user_profile(access_token: str) -> dict:
         )
 
 
+async def get_linked_repo(
+    session: Session, github_username: str, repo_name: str
+) -> GithubRepository | None:
+    """
+    Get GitHub repository entry from the database.
+
+    Parameters:
+        session (Session): Database session used to persist changes.
+        github_username (str): The GitHub username of the repository owner.
+        repo_name (str): The name of the repository to check.
+
+    Returns:
+        GithubRepository | None: The repository entry if found, otherwise None.
+    """
+    statement = (
+        select(GithubRepository)
+        .join(User)
+        .where(
+            User.github_username == github_username,
+            GithubRepository.name == repo_name,
+        )
+    )
+    logger.debug(f"Repository Query: {statement}")
+    db_repo = session.exec(statement).first()
+    logger.debug(f"Fetched Local Repo: {db_repo}")
+    return db_repo
+
+
+async def link_repository(
+    session: Session, user_id: str, repo_name: str, url: str
+) -> GithubRepository:
+    """
+    Link a repository to the website by creating a new GithubRepository database entry.
+
+    Parameters:
+        session (Session): Database session used to persist changes.
+        user_id (str): The ID of the user to associate with the repository.
+        repo_name (str): The name of the repository to link.
+        url (str): The URL of the repository.
+
+    Returns:
+        GithubRepository: The persisted repository entry.
+    """
+    repo = GithubRepository(user_id=user_id, name=repo_name, url=url)
+    session.add(repo)
+    session.commit()
+    session.refresh(repo)
+    return repo
+
+
 async def persist_github_user_profile(session: Session, user: User):
     """
     Persist GitHub profile fields into the provided User and save the updated user to the database.
@@ -136,6 +186,12 @@ async def revoke_access_token(access_token: str) -> None:
 
     This deletes the specific token and removes the application from the user's
     authorized apps list on GitHub.
+
+    Parameters:
+        access_token (str): The access token to revoke.
+
+    Returns:
+        None
     """
     url = f"https://api.github.com/applications/{settings.GITHUB_CLIENT_ID}/grant"
 
@@ -275,11 +331,8 @@ async def get_repo_collaborators(user: User, repo_name: str) -> list[dict]:
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(url, headers=headers)
-
         validate_github_response(response)
-
         data = response.json()
-
         return data
 
 
@@ -325,12 +378,24 @@ async def invite_collaborator(
 
 
 ### GraphQL
-async def get_all_shared_repos_hydrated(
+async def get_all_local_repos_hydrated(
     session: Session,
     token: str,
     limit: int = 20,
     cursor: str | None = None,  # TIMESTAMP|ID
 ) -> dict:
+    """
+    Fetch all shared repositories using GraphQL cursor pagination.
+
+    Parameters:
+        session (Session): Database session used to persist changes.
+        token (str): The GitHub access token used to fetch the repositories.
+        limit (int): The maximum number of repositories to fetch.
+        cursor (str | None): The 'endCursor' from the previous response to fetch the next page.
+
+    Returns:
+        dict: A dictionary containing the hydrated repositories and the next cursor.
+    """
     statement = (
         select(GithubRepository)
         .options(
@@ -341,6 +406,7 @@ async def get_all_shared_repos_hydrated(
         )
         .limit(limit)
     )
+    logger.debug(f"Repository Query: {statement}")
 
     if cursor:
         try:
@@ -359,6 +425,7 @@ async def get_all_shared_repos_hydrated(
                     ),
                 )
             )
+            logger.debug(f"Repository Query with cursor: {statement}")
         except ValueError:
             logger.warning(f"Invalid cursor: {cursor}")
             pass
@@ -366,6 +433,7 @@ async def get_all_shared_repos_hydrated(
     db_repos = session.exec(statement).all()
 
     if not db_repos:
+        logger.debug("No repositories found")
         return {"items": [], "next_cursor": None}
 
     next_cursor = None
@@ -373,6 +441,7 @@ async def get_all_shared_repos_hydrated(
         last_repo = db_repos[-1]
         # combine time and id into one string
         next_cursor = f"{last_repo.created_at.isoformat()}|{last_repo.id}"
+        logger.debug(f"Next cursor: {next_cursor}")
 
     # We use "Aliases" (repo_0, repo_1) to ask for multiple distinct items in one request
     query_fragments = []
@@ -386,21 +455,22 @@ async def get_all_shared_repos_hydrated(
         repo_{index}: repository(owner: "{owner}", name: "{name}") {{
             name
             description
-            stargazerCount
-            forkCount
+            stargazer_count: stargazerCount
+            fork_count: forkCount
             url
             owner {{
                 login
-                avatarUrl
+                avatar_url: avatarUrl
             }}
             collaborators(first: 10) {{
                 nodes {{
                     login
-                    avatarUrl
+                    avatar_url: avatarUrl
                 }}
             }}
         }}
         """
+        logger.debug(f"Query Fragment: {fragment}")
         query_fragments.append(fragment)
 
     full_query = f"query {{ {' '.join(query_fragments)} }}"
@@ -419,6 +489,7 @@ async def get_all_shared_repos_hydrated(
         validate_github_response(response)
 
         result = response.json()
+        logger.debug(f"GraphQL Response: {result}")
 
         hydrated_repos = []
         data = result.get("data", {}) or {}
@@ -439,6 +510,7 @@ async def get_all_shared_repos_hydrated(
                     }
                 )
 
+        logger.debug(f"Hydrated Repos: {hydrated_repos}")
         return {"items": hydrated_repos, "next_cursor": next_cursor}
 
 
