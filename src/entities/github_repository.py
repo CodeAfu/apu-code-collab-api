@@ -18,7 +18,7 @@ class GithubRepository(SQLModel, table=True):
     id: str = SQLField(default_factory=cuid_gen.generate, primary_key=True)
     user_id: str = SQLField(foreign_key="users.id", index=True)
     name: str = SQLField(min_length=1, max_length=50, index=True)
-    url: str = SQLField(min_length=1, max_length=200)
+    url: str = SQLField(unique=True, min_length=1, max_length=200)
 
     # Info to share on website
     # description: str | None = SQLField(default=None, max_length=1000)
