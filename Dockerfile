@@ -27,4 +27,4 @@ COPY . .
 EXPOSE 8000
 
 # Run the application using JSON array format (no --reload in production)
-CMD sh -c "python -m src.seed.run_all && uvicorn src.main:app --host 0.0.0.0 --port 8000"
+CMD sh -c "alembic upgrade head && python -m src.seed.run_all && uvicorn src.main:app --host 0.0.0.0 --port 8000"
