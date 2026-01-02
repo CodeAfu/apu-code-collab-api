@@ -7,7 +7,7 @@ from loguru import logger
 from src.auth import service as auth_service
 from src.config import settings
 from src.database.core import get_session
-from src.entities.user import User
+from src.entities.user import User, CourseYear
 from src.github.models import GitHubLinkRequest, PaginatedRepoResponse
 from src.github import service as github_service
 from src.rate_limiter import limiter
@@ -77,8 +77,17 @@ async def get_user(
     Returns:
         UserRead: The user's data with `is_github_linked` set to `true` if a GitHub access token is present, `false` otherwise.
     """
+    course_name = None
+    if user.university_course:
+        course_name = user.university_course.name
+
+    logger.info(f"User {user.id} requested their profile")
+
     return UserRead(
-        **user.model_dump(), is_github_linked=bool(user.github_access_token)
+        **user.model_dump(),
+        is_github_linked=bool(user.github_access_token),
+        university_course=course_name,
+        # course_year=user.course_year.value if user.course_year else None,
     )
 
 

@@ -21,6 +21,10 @@ class UserRead(BaseModel):
     github_avatar_url: str | None
     is_github_linked: bool
 
+    # FK
+    university_course: str | None
+    course_year: str | None
+
     created_at: datetime
     updated_at: datetime
 
