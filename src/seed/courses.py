@@ -39,6 +39,7 @@ apu_it_courses = [
 ]
 
 
+# Function must be called seed() for run_all script to work
 def seed():
     with Session(engine) as session:
         print(f"Seeding {len(apu_it_courses)} courses...")
