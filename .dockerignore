@@ -29,6 +29,3 @@ coverage.xml
 .DS_Store
 node_modules/
 secrets.txt
-alembic.ini
-alembic/
-alembic
