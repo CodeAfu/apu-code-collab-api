@@ -1,4 +1,4 @@
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, create_engine, select, or_
 from src.entities.university_course import UniversityCourse
 from src.config import settings
 
@@ -47,7 +47,10 @@ def seed():
         for data in apu_it_courses:
             # Check for existence to prevent UniqueConstraint violations
             statement = select(UniversityCourse).where(
-                UniversityCourse.code == data["code"]
+                or_(
+                    UniversityCourse.code == data["code"],
+                    UniversityCourse.name == data["name"],
+                )
             )
             existing = session.exec(statement).first()
 

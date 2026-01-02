@@ -3,7 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr
 
-from src.entities.user import UserRole
+from src.entities.user import UserRole, CourseYear
+from src.entities.university_course import UniversityCourse
 
 
 class UserRead(BaseModel):
@@ -22,11 +23,19 @@ class UserRead(BaseModel):
     is_github_linked: bool
 
     # FK
-    university_course: str | None
+    university_course: UniversityCourse | None
     course_year: str | None
 
     created_at: datetime
     updated_at: datetime
+
+
+class UpdateUserProfileRequest(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    email: EmailStr | None = None
+    university_course: UniversityCourse | None = None
+    course_year: CourseYear | None = None
 
 
 class RegisterUserRequest(BaseModel):

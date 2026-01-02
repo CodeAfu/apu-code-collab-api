@@ -7,12 +7,12 @@ from loguru import logger
 from src.auth import service as auth_service
 from src.config import settings
 from src.database.core import get_session
-from src.entities.user import User, CourseYear
+from src.entities.user import User
 from src.github.models import GitHubLinkRequest, PaginatedRepoResponse
 from src.github import service as github_service
 from src.rate_limiter import limiter
 from src.user import service
-from src.user.models import CreateUserRequest, UserRead
+from src.user.models import CreateUserRequest, UserRead, UpdateUserProfileRequest
 
 user_router = APIRouter(
     prefix="/api/v1/users",
@@ -77,17 +77,50 @@ async def get_user(
     Returns:
         UserRead: The user's data with `is_github_linked` set to `true` if a GitHub access token is present, `false` otherwise.
     """
-    course_name = None
-    if user.university_course:
-        course_name = user.university_course.name
-
     logger.info(f"User {user.id} requested their profile")
+    logger.debug(f"User: {user}, Course: {user.university_course}")
 
     return UserRead(
         **user.model_dump(),
         is_github_linked=bool(user.github_access_token),
-        university_course=course_name,
+        university_course=user.university_course if user.university_course else None,
         # course_year=user.course_year.value if user.course_year else None,
+    )
+
+
+@user_router.put(
+    "/me",
+    status_code=status.HTTP_200_OK,
+    response_model=UserRead,
+    response_model_exclude_none=True,
+    response_model_exclude={"password_hash", "github_access_token"},
+)
+@limiter.limit("10/minute")
+async def update_user(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    update_request: UpdateUserProfileRequest,
+    session: Session = Depends(get_session),
+) -> UserRead:
+    """
+    Update the authenticated user's profile.
+
+    This endpoint does not override existing user data.
+    If you wish to override user's existing data, use the admin endpoints.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        update_request (UpdateUserRequest): The payload containing the user's updated profile information.
+        session (Session): The database session dependency.
+
+    Returns:
+        UserRead: The updated user object.
+    """
+    user = service.update_user_profile(session, user, update_request)
+    return UserRead(
+        **user.model_dump(),
+        is_github_linked=bool(user.github_access_token),
+        university_course=user.university_course,
     )
 
 

@@ -9,11 +9,13 @@ from src.config import settings
 from src.database.core import init_db
 from src.github.controller import github_router
 from src.user.controller import user_router
+from src.university_courses.controller import university_course_router
 
 openapi_tags = [
     {"name": "Users", "description": "User operations"},
     {"name": "Authentication", "description": "Authentication operations"},
     {"name": "GitHub", "description": "GitHub API operations"},
+    {"name": "University Courses", "description": "University course operations"},
     {"name": "Health Checks", "description": "Application health checks"},
 ]
 
@@ -37,6 +39,7 @@ def add_routes(app: FastAPI):
     app.include_router(user_router, tags=["Users"])
     app.include_router(auth_router, tags=["Authentication"])
     app.include_router(github_router, tags=["GitHub"])
+    app.include_router(university_course_router, tags=["University Courses"])
 
     @app.get("/health", tags=["Health Checks"])
     async def health_check():
@@ -46,13 +49,20 @@ def add_routes(app: FastAPI):
         Returns:
             dict: A JSON-serializable mapping containing "message" with value "API is running".
         """
+        return {
+            "message": "API is running",
+        }
+
+    @app.get("/log_test", tags=["Health Checks"])
+    async def log_test():
+        """
+        Test logging
+        """
         logger.debug("Debug log from health check")
         logger.info("Info log from health check")
         logger.warning("Warning log from health check")
         logger.error("Error log from health check")
-        return {
-            "message": "API is running",
-        }
+        return {"message": "See backend logs"}
 
 
 def configure_api(app: FastAPI):

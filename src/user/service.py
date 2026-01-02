@@ -10,7 +10,7 @@ from src.exceptions import (
     UserDoesNotExistException,
     InvalidPasswordException,
 )
-from src.user.models import CreateUserRequest
+from src.user.models import CreateUserRequest, UpdateUserProfileRequest
 from src.utils import security
 from src.exceptions import ConflictException, InternalException
 
@@ -131,6 +131,44 @@ def ensure_user_is_unique(session: Session, email: str | None, apu_id: str) -> N
 
     if user:
         raise UserAlreadyExistsException()
+
+
+def update_user_profile(
+    session: Session, user: User, request: UpdateUserProfileRequest
+) -> User:
+    """
+    Update a user's profile information.
+
+    This function does not override existing user data.
+    If you wish to override user's existing data, use the admin endpoints.
+
+    Parameters:
+        session (Session): The database session.
+        user (User): The user to update.
+        request (UpdateUserProfileRequest): The updated user profile data.
+
+    Returns:
+        User: The updated user entity.
+    """
+    if user.first_name is None and request.first_name is not None:
+        user.first_name = request.first_name
+
+    if user.last_name is None and request.last_name is not None:
+        user.last_name = request.last_name
+
+    if user.email is None and request.email is not None:
+        user.email = request.email
+
+    if user.university_course_id is None and request.university_course is not None:
+        user.university_course_id = request.university_course.id
+
+    if user.course_year is None and request.course_year is not None:
+        user.course_year = request.course_year
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 def create_user(session: Session, request: CreateUserRequest) -> User:
