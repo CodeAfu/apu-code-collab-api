@@ -5,9 +5,10 @@ from pydantic import BaseModel, EmailStr
 
 from src.entities.user import UserRole, CourseYear
 from src.entities.university_course import UniversityCourse
+from src.entities.github_repository import GithubRepository
 
 
-class UserRead(BaseModel):
+class UserReadResponse(BaseModel):
     id: str
     apu_id: str
     first_name: str | None
@@ -22,9 +23,11 @@ class UserRead(BaseModel):
     github_avatar_url: str | None
     is_github_linked: bool
 
+    course_year: str | None
+
     # FK
     university_course: UniversityCourse | None
-    course_year: str | None
+    github_repositories: list[GithubRepository] | None
 
     created_at: datetime
     updated_at: datetime

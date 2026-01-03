@@ -30,6 +30,7 @@ class GithubRepository(SQLModel, table=True):
     contributors: list[str] = SQLField(
         default=[], sa_column=Column(JSON)
     )  # List of github usernames
+    skills: list[str] = SQLField(default=[], sa_column=Column(JSON))  # List of strings
 
     # Timestamps
     created_at: datetime = SQLField(

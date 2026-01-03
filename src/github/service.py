@@ -131,6 +131,98 @@ async def get_linked_repo(
     return db_repo
 
 
+async def update_repo_description(
+    session: Session,
+    github_username: str,
+    repo_name: str,
+    description: str,
+) -> GithubRepository:
+    """
+    Update the description of a repository entry that is shared with the website.
+
+    Parameters:
+        session (Session): Database session used to persist changes.
+        github_username (str): The GitHub username of the repository owner.
+        repo_name (str): The name of the repository to check.
+        description (str): The new description of the repository.
+
+    Returns:
+        GithubRepository: The repository entry if found.
+
+    Raises:
+        HTTPException(404): If the repository is not found.
+    """
+    statement = (
+        select(GithubRepository)
+        .join(User)
+        .where(
+            User.github_username == github_username,
+            GithubRepository.name == repo_name,
+        )
+    )
+    logger.debug(f"Repository Query: {statement}")
+    db_repo = session.exec(statement).first()
+    logger.debug(f"Fetched Local Repo: {db_repo}")
+    if not db_repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+    db_repo.description = description
+    session.add(db_repo)
+    session.commit()
+    session.refresh(db_repo)
+    return db_repo
+
+
+async def add_skills_to_repo(
+    session: Session,
+    github_username: str,
+    repo_name: str,
+    skills: list[str],
+) -> GithubRepository:
+    """
+    Add skills to a repository entry that is shared with the website.
+
+    Parameters:
+        session (Session): Database session used to persist changes.
+        github_username (str): The GitHub username of the repository owner.
+        repo_name (str): The name of the repository to check.
+        skills (list[str]): The list of skills to add to the repository.
+
+    Returns:
+        GithubRepository: The repository entry if found.
+
+    Raises:
+        HTTPException(404): If the repository is not found.
+    """
+    statement = (
+        select(GithubRepository)
+        .join(User)
+        .where(
+            User.github_username == github_username,
+            GithubRepository.name == repo_name,
+        )
+    )
+    logger.debug(f"Repository Query: {statement}")
+
+    db_repo = session.exec(statement).first()
+    logger.debug(f"Fetched Local Repo: {db_repo}")
+
+    if not db_repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+
+    db_repo.skills = skills
+
+    session.add(db_repo)
+    session.commit()
+    session.refresh(db_repo)
+    return db_repo
+
+
 async def link_repository(
     session: Session, user_id: str, repo_name: str, url: str
 ) -> GithubRepository:
