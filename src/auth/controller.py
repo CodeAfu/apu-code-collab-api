@@ -90,7 +90,7 @@ async def login_for_access_token(
         httponly=True,
         secure=True if settings.is_production else False,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        samesite="lax",
+        samesite="none" if settings.is_production else "lax",
     )
     logger.info(f"Logged in for access token: {token.access_token}")
     return token
@@ -125,7 +125,7 @@ async def logout(
         key="refresh_token",
         httponly=True,
         secure=True if settings.is_production else False,
-        samesite="lax",
+        samesite="none" if settings.is_production else "lax",
     )
 
     return {"message": "Logged out successfully"}
@@ -169,7 +169,7 @@ async def refresh_access_token(
         httponly=True,
         secure=True if settings.is_production else False,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        samesite="lax",
+        samesite="none" if settings.is_production else "lax",
     )
     logger.info("Token refreshed successfully")
     return token
