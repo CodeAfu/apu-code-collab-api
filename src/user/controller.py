@@ -12,7 +12,11 @@ from src.github.models import GitHubLinkRequest, PaginatedRepoResponse
 from src.github import service as github_service
 from src.rate_limiter import limiter
 from src.user import service
-from src.user.models import CreateUserRequest, UserRead, UpdateUserProfileRequest
+from src.user.models import (
+    CreateUserRequest,
+    UserReadResponse,
+    UpdateUserProfileRequest,
+)
 
 user_router = APIRouter(
     prefix="/api/v1/users",
@@ -57,7 +61,7 @@ async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
 
 @user_router.get(
     "/me",
-    response_model=UserRead,
+    response_model=UserReadResponse,
     response_model_exclude_none=True,
     response_model_exclude={"password_hash", "github_access_token"},
 )
@@ -66,7 +70,7 @@ async def get_user(
     request: Request,
     user: auth_service.CurrentActiveUser,
     session: Session = Depends(get_session),
-) -> UserRead:
+) -> UserReadResponse:
     # await github_service.persist_github_user_profile(session, user)
     """
     Return the authenticated user's public profile as a UserRead model.
@@ -80,10 +84,13 @@ async def get_user(
     logger.info(f"User {user.id} requested their profile")
     logger.debug(f"User: {user}, Course: {user.university_course}")
 
-    return UserRead(
+    return UserReadResponse(
         **user.model_dump(),
         is_github_linked=bool(user.github_access_token),
         university_course=user.university_course if user.university_course else None,
+        github_repositories=user.github_repositories
+        if user.github_repositories
+        else None,
         # course_year=user.course_year.value if user.course_year else None,
     )
 
@@ -91,7 +98,7 @@ async def get_user(
 @user_router.put(
     "/me",
     status_code=status.HTTP_200_OK,
-    response_model=UserRead,
+    response_model=UserReadResponse,
     response_model_exclude_none=True,
     response_model_exclude={"password_hash", "github_access_token"},
 )
@@ -101,7 +108,7 @@ async def update_user(
     user: auth_service.CurrentActiveUser,
     update_request: UpdateUserProfileRequest,
     session: Session = Depends(get_session),
-) -> UserRead:
+) -> UserReadResponse:
     """
     Update the authenticated user's profile.
 
@@ -117,7 +124,7 @@ async def update_user(
         UserRead: The updated user object.
     """
     user = service.update_user_profile(session, user, update_request)
-    return UserRead(
+    return UserReadResponse(
         **user.model_dump(),
         is_github_linked=bool(user.github_access_token),
         university_course=user.university_course,

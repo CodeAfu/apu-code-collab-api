@@ -1,11 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlmodel import Session
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    status,
+)
 from loguru import logger
+from sqlmodel import Session
 
 from src.auth import service as auth_service
 from src.database.core import get_session
 from src.entities.github_repository import GithubRepository
 from src.github import service as github_service
+from src.github.models import AddSkillsRequest, UpdateRepoDescriptionRequest
 from src.rate_limiter import limiter
 
 github_router = APIRouter(
@@ -55,8 +65,10 @@ async def get_local_repos(
 async def get_repo_information(
     request: Request,
     user: auth_service.CurrentActiveUser,
-    repo_name: str,
-    github_username: str,
+    repo_name: str = Path(description="The name of the repository."),
+    github_username: str = Path(
+        description="The GitHub username of the repository owner."
+    ),
 ) -> dict:
     """
     Retrieve information about a repository.
@@ -103,10 +115,12 @@ async def get_repo_information(
 async def get_repo_local(
     request: Request,
     user: auth_service.CurrentActiveUser,
-    repo_name: str,
-    github_username: str,
+    repo_name: str = Path(description="The name of the repository."),
+    github_username: str = Path(
+        description="The GitHub username of the repository owner."
+    ),
     session: Session = Depends(get_session),
-) -> GithubRepository | None:
+) -> dict | None:
     """
     Retrieve a respository entry that is shared with the website.
 
@@ -117,7 +131,7 @@ async def get_repo_local(
         github_username (str): The GitHub username of the repository owner.
 
     Returns:
-        GithubRepository | None: The repository entry if found, otherwise None.
+        dict | None: The repository entry if found, otherwise None.
     """
     if not user.github_access_token:
         logger.error("GitHub access token required")
@@ -140,10 +154,113 @@ async def get_repo_local(
             detail="Missing GitHub username",
         )
 
-    return await github_service.get_linked_repo(
+    db_repo = await github_service.get_linked_repo(
         session,
         github_username,
         repo_name,
+    )
+
+    if not db_repo:
+        return None
+
+    return {
+        **db_repo.model_dump(),
+        "skills": db_repo.skill_names,
+    }
+
+
+@github_router.post("/repos/{id}/description")
+@limiter.limit("15/minute")
+async def update_repo_local_description(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    id: str = Path(description="The ID of the repository."),
+    payload: UpdateRepoDescriptionRequest = Body(
+        ..., description="The new description of the repository."
+    ),
+    session: Session = Depends(get_session),
+) -> GithubRepository:
+    """
+    Update the description of a repository entry that is shared with the website.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        id (str): The ID of the repository to check.
+        payload (UpdateRepoDescriptionRequest): The new description of the repository.
+
+    Returns:
+        GithubRepository: The repository entry if found
+
+    Raises:
+        HTTPException(404): If the repository is not found.
+    """
+    if not user.github_access_token:
+        logger.error("GitHub access token required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub access token required",
+        )
+
+    if not id:
+        logger.error("Missing repository ID")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing repository ID",
+        )
+
+    return await github_service.update_repo_description(
+        session,
+        id,
+        payload.description,
+    )
+
+
+@github_router.post("/repos/{id}/skills")
+@limiter.limit("15/minute")
+async def add_skills_to_repo_local(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    id: str = Path(description="The ID of the repository."),
+    payload: AddSkillsRequest = Body(
+        ..., description="The list of skills to add to the repository."
+    ),
+    session: Session = Depends(get_session),
+) -> GithubRepository:
+    """
+    Add skills to a repository entry that is shared with the website.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        id (str): The ID of the repository to check.
+        skills (AddSkillsRequest): The list of skills to add to the repository.
+
+    Returns:
+        GithubRepository: The repository entry if found
+
+    Raises:
+        HTTPException(400): If the repository id is missing on the request.
+        HTTPException(401): If the user is not authenticated.
+        HTTPException(404): If the repository is not found.
+    """
+    if not user.github_access_token:
+        logger.error("GitHub access token required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub access token required",
+        )
+
+    if not id:
+        logger.error("Missing repository ID")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing repository ID",
+        )
+
+    return await github_service.add_skills_to_repo(
+        session,
+        user.id,
+        id,
+        payload.skills,
     )
 
 
@@ -158,7 +275,7 @@ async def link_repo_local(
     repo_name: str = Query(str, description="The name of the repository."),
     url: str = Query(str, description="The URL of the repository."),
     session: Session = Depends(get_session),
-):
+) -> GithubRepository:
     """
     Persist a repository entry in the database.
 
@@ -198,3 +315,24 @@ async def link_repo_local(
         repo_name,
         url,
     )
+
+
+@github_router.get("/repos/skills", response_model_exclude={"added_by"})
+@limiter.limit("15/minute")
+async def get_all_skills(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+) -> dict:
+    """
+    Retrieve the full list of skills for a github repository.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+
+    Returns:
+        dict: A paginated response containing the user's skills.
+    """
+    return await github_service.get_all_skills(session)

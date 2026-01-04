@@ -10,3 +10,11 @@ class PaginatedRepoResponse(BaseModel):
     size: int
     page: int
     has_next: bool
+
+
+class AddSkillsRequest(BaseModel):
+    skills: list[str]
+
+
+class UpdateRepoDescriptionRequest(BaseModel):
+    description: str
