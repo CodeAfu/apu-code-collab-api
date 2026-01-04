@@ -7,13 +7,34 @@ from sqlmodel import Field as SQLField
 
 if TYPE_CHECKING:
     from src.entities.user import User
+    from src.entities.framework import Framework
+    from src.entities.programming_language import ProgrammingLanguage
 
 cuid_gen = Cuid()
 
 
+class GithubRepositoryFrameworkLink(SQLModel, table=True):
+    __tablename__ = "github_repository_framework_links"  # type: ignore
+
+    repository_id: str = SQLField(
+        foreign_key="github_repositories.id", primary_key=True
+    )
+    framework_id: str = SQLField(foreign_key="frameworks.id", primary_key=True)
+
+
+class GithubRepositoryProgrammingLanguageLink(SQLModel, table=True):
+    __tablename__ = "github_repository_programming_language_links"  # type: ignore
+
+    repository_id: str = SQLField(
+        foreign_key="github_repositories.id", primary_key=True
+    )
+    programming_language_id: str = SQLField(
+        foreign_key="programming_languages.id", primary_key=True
+    )
+
+
 class GithubRepository(SQLModel, table=True):
     __tablename__ = "github_repositories"  # type: ignore
-
     __table_args__ = (UniqueConstraint("user_id", "name", name="uix_user_id_name"),)
 
     # Required fields for initialization
@@ -30,7 +51,13 @@ class GithubRepository(SQLModel, table=True):
     contributors: list[str] = SQLField(
         default=[], sa_column=Column(JSON)
     )  # List of github usernames
-    skills: list[str] = SQLField(default=[], sa_column=Column(JSON))  # List of strings
+    frameworks: list["Framework"] = Relationship(
+        back_populates="repositories", link_model=GithubRepositoryFrameworkLink
+    )
+    programming_languages: list["ProgrammingLanguage"] = Relationship(
+        back_populates="repositories",
+        link_model=GithubRepositoryProgrammingLanguageLink,
+    )
 
     # Timestamps
     created_at: datetime = SQLField(
@@ -42,3 +69,15 @@ class GithubRepository(SQLModel, table=True):
 
     # Relationships (Navigation properties)
     user: "User" = Relationship(back_populates="github_repositories")
+
+    @property
+    def skill_names(self) -> list[str]:
+        langs = [lang.name for lang in self.programming_languages]
+        fworks = [fwork.name for fwork in self.frameworks]
+        return langs + fworks
+
+    @property
+    def skills(self):
+        langs = [lang for lang in self.programming_languages]
+        fworks = [fwork for fwork in self.frameworks]
+        return langs + fworks

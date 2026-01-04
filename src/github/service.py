@@ -12,6 +12,8 @@ from src.config import settings
 from src.entities.github_repository import GithubRepository
 from src.entities.user import User
 from src.exceptions import AuthenticationError
+from src.entities.framework import Framework
+from src.entities.programming_language import ProgrammingLanguage
 
 
 async def exchange_code_for_token(code: str) -> str:
@@ -133,8 +135,7 @@ async def get_linked_repo(
 
 async def update_repo_description(
     session: Session,
-    github_username: str,
-    repo_name: str,
+    id: str,
     description: str,
 ) -> GithubRepository:
     """
@@ -142,8 +143,7 @@ async def update_repo_description(
 
     Parameters:
         session (Session): Database session used to persist changes.
-        github_username (str): The GitHub username of the repository owner.
-        repo_name (str): The name of the repository to check.
+        id (str): The ID of the repository to check.
         description (str): The new description of the repository.
 
     Returns:
@@ -152,33 +152,30 @@ async def update_repo_description(
     Raises:
         HTTPException(404): If the repository is not found.
     """
-    statement = (
-        select(GithubRepository)
-        .join(User)
-        .where(
-            User.github_username == github_username,
-            GithubRepository.name == repo_name,
-        )
-    )
-    logger.debug(f"Repository Query: {statement}")
-    db_repo = session.exec(statement).first()
+    db_repo = session.exec(
+        select(GithubRepository).where(GithubRepository.id == id)
+    ).first()
     logger.debug(f"Fetched Local Repo: {db_repo}")
+
     if not db_repo:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repository not found",
         )
+
     db_repo.description = description
+
     session.add(db_repo)
     session.commit()
     session.refresh(db_repo)
+
     return db_repo
 
 
 async def add_skills_to_repo(
     session: Session,
-    github_username: str,
-    repo_name: str,
+    user_id: str,
+    id: str,
     skills: list[str],
 ) -> GithubRepository:
     """
@@ -186,8 +183,8 @@ async def add_skills_to_repo(
 
     Parameters:
         session (Session): Database session used to persist changes.
-        github_username (str): The GitHub username of the repository owner.
-        repo_name (str): The name of the repository to check.
+        user_id (str): The ID of the user who added the skills.
+        id (str): The ID of the repository to check.
         skills (list[str]): The list of skills to add to the repository.
 
     Returns:
@@ -196,17 +193,9 @@ async def add_skills_to_repo(
     Raises:
         HTTPException(404): If the repository is not found.
     """
-    statement = (
-        select(GithubRepository)
-        .join(User)
-        .where(
-            User.github_username == github_username,
-            GithubRepository.name == repo_name,
-        )
-    )
-    logger.debug(f"Repository Query: {statement}")
-
-    db_repo = session.exec(statement).first()
+    db_repo = session.exec(
+        select(GithubRepository).where(GithubRepository.id == id)
+    ).first()
     logger.debug(f"Fetched Local Repo: {db_repo}")
 
     if not db_repo:
@@ -215,11 +204,41 @@ async def add_skills_to_repo(
             detail="Repository not found",
         )
 
-    db_repo.skills = skills
+    db_repo.programming_languages.clear()
+    db_repo.frameworks.clear()
+
+    for name in set(skills):
+        clean_name = name.strip()
+        if not clean_name:
+            continue
+
+        stmt_lang = select(ProgrammingLanguage).where(
+            col(ProgrammingLanguage.name).ilike(clean_name)  # ilike = case insensitive
+        )
+        existing_lang = session.exec(stmt_lang).first()
+
+        if existing_lang:
+            db_repo.programming_languages.append(existing_lang)
+            continue
+
+        stmt_fwork = select(Framework).where(
+            col(Framework.name).ilike(clean_name)  # ilike = case insensitive
+        )
+        existing_fwork = session.exec(stmt_fwork).first()
+
+        if existing_fwork:
+            db_repo.frameworks.append(existing_fwork)
+            continue
+
+        new_fwork = Framework(name=clean_name, added_by=user_id)
+
+        session.add(new_fwork)
+        db_repo.frameworks.append(new_fwork)
 
     session.add(db_repo)
     session.commit()
     session.refresh(db_repo)
+
     return db_repo
 
 
@@ -467,6 +486,26 @@ async def invite_collaborator(
             return {"message": "User is already a collaborator."}
 
         return data
+
+
+async def get_all_skills(session: Session) -> dict:
+    """
+    Fetch all skills from the database.
+
+    Returns:
+        dict: A list of skills.
+    """
+    framworks = session.exec(select(Framework)).all()
+    programming_languages = session.exec(select(ProgrammingLanguage)).all()
+
+    skills = []
+    for framework in framworks:
+        skills.append(framework.name)
+
+    for programming_language in programming_languages:
+        skills.append(programming_language.name)
+
+    return {"items": skills}
 
 
 ### GraphQL

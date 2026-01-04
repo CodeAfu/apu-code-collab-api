@@ -4,12 +4,17 @@ from typing import TYPE_CHECKING
 
 from cuid2 import Cuid
 from pydantic import model_validator
+from sqlmodel import Column, DateTime, Relationship, SQLModel
 from sqlmodel import Field as SQLField
-from sqlmodel import Relationship, SQLModel, Column, DateTime
+
+from src.entities.framework import UserFrameworkLink
+from src.entities.programming_language import UserProgrammingLanguageLink
 
 if TYPE_CHECKING:
-    from src.entities.refresh_token import RefreshToken
+    from src.entities.framework import Framework
     from src.entities.github_repository import GithubRepository
+    from src.entities.programming_language import ProgrammingLanguage
+    from src.entities.refresh_token import RefreshToken
     from src.entities.university_course import UniversityCourse
 
 cuid_gen = Cuid()
@@ -71,6 +76,13 @@ class User(SQLModel, table=True):
     refresh_tokens: list["RefreshToken"] = Relationship(back_populates="user")
     github_repositories: list["GithubRepository"] = Relationship(back_populates="user")
     university_course: "UniversityCourse" = Relationship(back_populates="users")
+    preferred_programming_languages: list["ProgrammingLanguage"] = Relationship(
+        back_populates="users",
+        link_model=UserProgrammingLanguageLink,
+    )
+    preferred_frameworks: list["Framework"] = Relationship(
+        back_populates="users", link_model=UserFrameworkLink
+    )
 
     @model_validator(mode="before")
     @classmethod

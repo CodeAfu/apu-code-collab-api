@@ -8,9 +8,18 @@ from dotenv import load_dotenv
 # Import your SQLModel base and all models
 from sqlmodel import SQLModel
 from src.entities.user import User
-from src.entities.github_repository import GithubRepository
+from src.entities.github_repository import (
+    GithubRepository,
+    GithubRepositoryFrameworkLink,
+    GithubRepositoryProgrammingLanguageLink,
+)
 from src.entities.refresh_token import RefreshToken
 from src.entities.university_course import UniversityCourse
+from src.entities.programming_language import (
+    ProgrammingLanguage,
+    UserProgrammingLanguageLink,
+)
+from src.entities.framework import Framework, UserFrameworkLink
 
 # Load environment variables
 load_dotenv()
