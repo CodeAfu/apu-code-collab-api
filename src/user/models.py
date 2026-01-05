@@ -1,36 +1,49 @@
 # Requests
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
-from src.entities.user import UserRole, CourseYear
-from src.entities.university_course import UniversityCourse
 from src.entities.github_repository import GithubRepository
+from src.entities.university_course import UniversityCourse
+from src.entities.user import CourseYear, UserRole
+
+
+class SkillRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str
 
 
 class UserReadResponse(BaseModel):
     id: str
     apu_id: str
-    first_name: str | None
-    last_name: str | None
-    email: str | None
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
     is_active: bool
     role: UserRole
 
     # Github Public Info
-    github_id: int | None
-    github_username: str | None
-    github_avatar_url: str | None
+    github_id: int | None = None
+    github_username: str | None = None
+    github_avatar_url: str | None = None
     is_github_linked: bool
 
-    course_year: str | None
+    course_year: str | None = None
 
     # FK
-    university_course: UniversityCourse | None
-    github_repositories: list[GithubRepository] | None
+    university_course: UniversityCourse | None = None
+    github_repositories: list[GithubRepository] | None = None
+    preferred_programming_languages: list[SkillRead] | None = None
+    preferred_frameworks: list[SkillRead] | None = None
 
     created_at: datetime
     updated_at: datetime
+
+
+class PersistPreferencesRequest(BaseModel):
+    programming_languages: list[str] | None = None
+    frameworks: list[str] | None = None
 
 
 class UpdateUserProfileRequest(BaseModel):

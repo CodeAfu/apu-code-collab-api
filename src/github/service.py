@@ -1,19 +1,20 @@
 import json
 from datetime import datetime
+from typing import Sequence
 
 import httpx
 from fastapi import HTTPException, status
 from loguru import logger
-from sqlalchemy.orm import selectinload
 from sqlalchemy import and_, or_
-from sqlmodel import Session, select, col
+from sqlalchemy.orm import selectinload
+from sqlmodel import Session, col, select
 
 from src.config import settings
+from src.entities.framework import Framework
 from src.entities.github_repository import GithubRepository
+from src.entities.programming_language import ProgrammingLanguage
 from src.entities.user import User
 from src.exceptions import AuthenticationError
-from src.entities.framework import Framework
-from src.entities.programming_language import ProgrammingLanguage
 
 
 async def exchange_code_for_token(code: str) -> str:
@@ -506,6 +507,28 @@ async def get_all_skills(session: Session) -> dict:
         skills.append(programming_language.name)
 
     return {"items": skills}
+
+
+async def get_all_programming_languages(
+    session: Session,
+) -> Sequence[ProgrammingLanguage]:
+    """
+    Fetch all programming languages from the database.
+
+    Returns:
+        Sequence[ProgrammingLanguage]: A list of programming languages.
+    """
+    return session.exec(select(ProgrammingLanguage)).all()
+
+
+async def get_all_frameworks(session: Session) -> Sequence[Framework]:
+    """
+    Fetch all frameworks from the database.
+
+    Returns:
+        Sequence[Framework]: A list of frameworks.
+    """
+    return session.exec(select(Framework)).all()
 
 
 ### GraphQL

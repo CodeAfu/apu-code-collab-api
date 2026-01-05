@@ -11,11 +11,13 @@ from src.entities.user import User
 from src.github.models import GitHubLinkRequest, PaginatedRepoResponse
 from src.github import service as github_service
 from src.rate_limiter import limiter
-from src.user import service
+from src.user import service as user_service
 from src.user.models import (
     CreateUserRequest,
     UserReadResponse,
     UpdateUserProfileRequest,
+    SkillRead,
+    PersistPreferencesRequest,
 )
 
 user_router = APIRouter(
@@ -27,7 +29,7 @@ user_router = APIRouter(
     "/",
     response_model=list[User],
     response_model_exclude_none=True,
-    response_model_exclude={"password_hash"},
+    response_model_exclude={"password_hash", "github_access_token"},
 )
 async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
     """
@@ -55,7 +57,7 @@ async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
             },
         )
 
-    users = service.get_users(session)
+    users = user_service.get_users(session)
     return users
 
 
@@ -88,6 +90,17 @@ async def get_user(
         **user.model_dump(),
         is_github_linked=bool(user.github_access_token),
         university_course=user.university_course if user.university_course else None,
+        preferred_programming_languages=[
+            SkillRead.model_validate(lang)
+            for lang in user.preferred_programming_languages
+        ]
+        if user.preferred_programming_languages
+        else [],
+        preferred_frameworks=[
+            SkillRead.model_validate(fw) for fw in user.preferred_frameworks
+        ]
+        if user.preferred_frameworks
+        else [],
         github_repositories=user.github_repositories
         if user.github_repositories
         else None,
@@ -123,7 +136,7 @@ async def update_user(
     Returns:
         UserRead: The updated user object.
     """
-    user = service.update_user_profile(session, user, update_request)
+    user = user_service.update_user_profile(session, user, update_request)
     return UserReadResponse(
         **user.model_dump(),
         is_github_linked=bool(user.github_access_token),
@@ -136,7 +149,7 @@ async def update_user(
     status_code=status.HTTP_201_CREATED,
     response_model=User,
     response_model_exclude_none=True,
-    response_model_exclude={"password_hash"},
+    response_model_exclude={"password_hash", "github_access_token"},
 )
 @limiter.limit("10/minute")
 async def create_user(
@@ -160,8 +173,10 @@ async def create_user(
     Raises:
         HTTPException(400): If the email or APU ID is already in use.
     """
-    service.ensure_user_is_unique(session, create_request.email, create_request.apu_id)
-    return service.create_user(session, create_request)
+    user_service.ensure_user_is_unique(
+        session, create_request.email, create_request.apu_id
+    )
+    return user_service.create_user(session, create_request)
 
 
 @user_router.delete(
@@ -186,7 +201,7 @@ async def delete_user(
     Raises:
         HTTPException(404): If no user is found with the provided ID.
     """
-    return service.delete_user(session, user_id)
+    return user_service.delete_user(session, user_id)
 
 
 @user_router.post(
@@ -338,3 +353,69 @@ async def get_repo_collaborators(
         )
 
     return await github_service.get_repo_collaborators(user, repo_name)
+
+
+@user_router.put(
+    "/me/preferences/persist",
+    response_model=UserReadResponse,
+    response_model_exclude_none=True,
+    response_model_exclude={"password_hash", "github_access_token"},
+)
+@limiter.limit("10/minute")
+async def persist_preferences(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    persist_request: PersistPreferencesRequest,
+    session: Session = Depends(get_session),
+) -> UserReadResponse:
+    """
+    Persist the user's preferred programming languages and frameworks.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        persist_request (PersistPreferencesRequest): The payload containing the user's updated preferences.
+        session (Session): The database session dependency.
+
+    Returns:
+        dict: A message confirming successful linking, e.g. `{"message": "Preferences persisted successfully"}`.
+
+    Raises:
+        HTTPException(401): If the user does not have a valid GitHub access token.
+    """
+    if not user.github_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub access token required",
+        )
+
+    logger.info(f"Persisting preferences for user {user.id}")
+    logger.debug(f"Persist Request: {persist_request}")
+
+    user = await user_service.persist_preferences(
+        session,
+        user,
+        persist_request.programming_languages,
+        persist_request.frameworks,
+    )
+
+    return UserReadResponse(
+        **user.model_dump(),
+        is_github_linked=bool(user.github_access_token),
+        university_course=user.university_course if user.university_course else None,
+        github_repositories=user.github_repositories
+        if user.github_repositories
+        else None,
+        preferred_programming_languages=[
+            SkillRead.model_validate(lang)
+            for lang in user.preferred_programming_languages
+        ]
+        if user.preferred_programming_languages
+        else [],
+        preferred_frameworks=[
+            SkillRead.model_validate(fw) for fw in user.preferred_frameworks
+        ]
+        if user.preferred_frameworks
+        else [],
+    )
