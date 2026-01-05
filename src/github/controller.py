@@ -18,7 +18,11 @@ from src.entities.framework import Framework
 from src.entities.github_repository import GithubRepository
 from src.entities.programming_language import ProgrammingLanguage
 from src.github import service as github_service
-from src.github.models import AddSkillsRequest, UpdateRepoDescriptionRequest
+from src.github.models import (
+    AddSkillsRequest,
+    UpdateRepoDescriptionRequest,
+    GithubRepositoryStatsPayload,
+)
 from src.rate_limiter import limiter
 
 github_router = APIRouter(
@@ -36,6 +40,12 @@ async def get_local_repos(
         None, description="Cursor for pagination (TIMESTAMP|ID)"
     ),
     size: int = Query(20, ge=1, le=100, description="Items per page"),
+    search: str | None = Query(None, description="Search query"),
+    skills: list[str] | None = Query(
+        None, description="Frameworks and Programming Languages"
+    ),
+    apu_id: str | None = Query(None, description="Owner's APU ID"),
+    github_username: str | None = Query(None, description="Owner's GitHub username"),
 ) -> dict:
     """
     Retrieve a paginated list of repositories for the authenticated user.
@@ -59,7 +69,14 @@ async def get_local_repos(
 
     # Pass the pagination params to the service
     return await github_service.get_all_local_repos_hydrated(
-        session, user.github_access_token, size, cursor
+        session,
+        user.github_access_token,
+        size,
+        search,
+        skills,
+        apu_id,
+        github_username,
+        cursor,
     )
 
 
@@ -172,6 +189,44 @@ async def get_repo_local(
     }
 
 
+@github_router.delete("/repos/local/{id}")
+@limiter.limit("15/minute")
+async def delete_local_repo(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    id: str = Path(description="The ID of the repository."),
+    session: Session = Depends(get_session),
+) -> GithubRepository:
+    """
+    Delete a repository entry that is shared with the website.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        id (str): The ID of the repository to delete.
+        session (Session): The database session dependency.
+
+    Returns:
+        GithubRepository: The repository entry that was deleted.
+
+    Raises:
+        HTTPException(401): If the user is not authenticated.
+        HTTPException(403): If the user does not have permission to delete the repository.
+        HTTPException(404): If the repository is not found.
+    """
+    if not user.github_access_token:
+        logger.error("GitHub access token required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub access token required",
+        )
+
+    return await github_service.delete_linked_repo(
+        session,
+        user.id,
+        id,
+    )
+
+
 @github_router.post("/repos/{id}/description")
 @limiter.limit("15/minute")
 async def update_repo_local_description(
@@ -277,6 +332,9 @@ async def link_repo_local(
     ),
     repo_name: str = Query(str, description="The name of the repository."),
     url: str = Query(str, description="The URL of the repository."),
+    stats_payload: GithubRepositoryStatsPayload = Body(
+        ..., description="The statistics of the repository."
+    ),
     session: Session = Depends(get_session),
 ) -> GithubRepository:
     """
@@ -317,6 +375,7 @@ async def link_repo_local(
         user_id,
         repo_name,
         url,
+        stats_payload,
     )
 
 
@@ -381,3 +440,44 @@ async def get_all_frameworks(
         Sequence[Framework]: A list of frameworks.
     """
     return await github_service.get_all_frameworks(session)
+
+
+@github_router.get("/dashboard-stats")
+@limiter.limit("15/minute")
+async def get_dashboard_stats(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+) -> dict:
+    """
+    Retrieve the dashboard statistics for the authenticated user.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+
+    Returns:
+        dict: A dictionary containing the dashboard statistics.
+    """
+    return await github_service.get_dashboard_stats(session, user.id)
+
+
+@github_router.get("/global-dashboard-stats")
+@limiter.limit("15/minute")
+async def get_global_platform_stats(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """
+    Retrieve the global platform statistics.
+
+    This endpoint does not require any authentication.
+
+    Parameters:
+        session (Session): The database session.
+
+    Returns:
+        dict: A dictionary containing the global platform statistics.
+    """
+    return await github_service.get_global_platform_stats(session)
