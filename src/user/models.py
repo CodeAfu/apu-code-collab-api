@@ -17,25 +17,25 @@ class SkillRead(BaseModel):
 class UserReadResponse(BaseModel):
     id: str
     apu_id: str
-    first_name: str | None
-    last_name: str | None
-    email: str | None
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
     is_active: bool
     role: UserRole
 
     # Github Public Info
-    github_id: int | None
-    github_username: str | None
-    github_avatar_url: str | None
+    github_id: int | None = None
+    github_username: str | None = None
+    github_avatar_url: str | None = None
     is_github_linked: bool
 
-    course_year: str | None
+    course_year: str | None = None
 
     # FK
-    university_course: UniversityCourse | None
-    github_repositories: list[GithubRepository] | None
-    preferred_programming_languages: list[SkillRead] | None
-    preferred_frameworks: list[SkillRead] | None
+    university_course: UniversityCourse | None = None
+    github_repositories: list[GithubRepository] | None = None
+    preferred_programming_languages: list[SkillRead] | None = None
+    preferred_frameworks: list[SkillRead] | None = None
 
     created_at: datetime
     updated_at: datetime

@@ -29,7 +29,7 @@ user_router = APIRouter(
     "/",
     response_model=list[User],
     response_model_exclude_none=True,
-    response_model_exclude={"password_hash"},
+    response_model_exclude={"password_hash", "github_access_token"},
 )
 async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
     """
@@ -149,7 +149,7 @@ async def update_user(
     status_code=status.HTTP_201_CREATED,
     response_model=User,
     response_model_exclude_none=True,
-    response_model_exclude={"password_hash"},
+    response_model_exclude={"password_hash", "github_access_token"},
 )
 @limiter.limit("10/minute")
 async def create_user(
@@ -359,7 +359,7 @@ async def get_repo_collaborators(
     "/me/preferences/persist",
     response_model=UserReadResponse,
     response_model_exclude_none=True,
-    response_model_exclude={"password_hash"},
+    response_model_exclude={"password_hash", "github_access_token"},
 )
 @limiter.limit("10/minute")
 async def persist_preferences(
