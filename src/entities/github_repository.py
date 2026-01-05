@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from cuid2 import Cuid
 from sqlmodel import Column, DateTime, Relationship, SQLModel, UniqueConstraint, JSON
-from sqlmodel import Field as SQLField
+from sqlmodel import Field as SQLField, Integer
 
 if TYPE_CHECKING:
     from src.entities.user import User
@@ -43,6 +43,16 @@ class GithubRepository(SQLModel, table=True):
     name: str = SQLField(min_length=1, max_length=50, index=True)
     url: str = SQLField(unique=True, min_length=1, max_length=200)
 
+    # Statistics
+    repository_language: str | None = SQLField(
+        default=None, max_length=50
+    )  # Language of the repository detected by GitHub
+    topics: list[str] = SQLField(default=[], sa_column=Column(JSON))
+    forks_count: int = SQLField(default=0, sa_column=Column(Integer))
+    stargazers_count: int = SQLField(default=0, sa_column=Column(Integer))
+    subscribers_count: int = SQLField(default=0, sa_column=Column(Integer))
+    open_issues_count: int = SQLField(default=0, sa_column=Column(Integer))
+
     # Info to share on website (Local)
     description: str | None = SQLField(default=None, max_length=1000)
     collaborators: list[str] = SQLField(
@@ -53,11 +63,11 @@ class GithubRepository(SQLModel, table=True):
     )  # List of github usernames
     frameworks: list["Framework"] = Relationship(
         back_populates="repositories", link_model=GithubRepositoryFrameworkLink
-    )
+    )  # Recommended frameworks for collaborators (user assigned)
     programming_languages: list["ProgrammingLanguage"] = Relationship(
         back_populates="repositories",
         link_model=GithubRepositoryProgrammingLanguageLink,
-    )
+    )  # Recommended langauge for collaborators (user assigned)
 
     # Timestamps
     created_at: datetime = SQLField(

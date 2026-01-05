@@ -5,7 +5,7 @@ from typing import Sequence
 import httpx
 from fastapi import HTTPException, status
 from loguru import logger
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
@@ -15,6 +15,7 @@ from src.entities.github_repository import GithubRepository
 from src.entities.programming_language import ProgrammingLanguage
 from src.entities.user import User
 from src.exceptions import AuthenticationError
+from src.github.models import GithubRepositoryStatsPayload
 
 
 async def exchange_code_for_token(code: str) -> str:
@@ -134,6 +135,45 @@ async def get_linked_repo(
     return db_repo
 
 
+async def delete_linked_repo(
+    session: Session,
+    user_id: str,
+    repo_id: str,
+) -> GithubRepository:
+    """
+    Delete a repository entry that is shared with the website.
+
+    Parameters:
+        session (Session): Database session used to persist changes.
+        user_id (str): The ID of the user who added the skills.
+        repo_id (str): The ID of the repository to delete.
+
+    Returns:
+        GithubRepository: The repository entry that was deleted.
+    """
+    db_repo = session.exec(
+        select(GithubRepository).where(GithubRepository.id == repo_id)
+    ).first()
+    logger.debug(f"Fetched Local Repo: {db_repo}")
+
+    if not db_repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+
+    if db_repo.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this repository",
+        )
+
+    session.delete(db_repo)
+    session.commit()
+
+    return db_repo
+
+
 async def update_repo_description(
     session: Session,
     id: str,
@@ -244,7 +284,11 @@ async def add_skills_to_repo(
 
 
 async def link_repository(
-    session: Session, user_id: str, repo_name: str, url: str
+    session: Session,
+    user_id: str,
+    repo_name: str,
+    url: str,
+    stats_payload: GithubRepositoryStatsPayload,
 ) -> GithubRepository:
     """
     Link a repository to the website by creating a new GithubRepository database entry.
@@ -258,7 +302,18 @@ async def link_repository(
     Returns:
         GithubRepository: The persisted repository entry.
     """
-    repo = GithubRepository(user_id=user_id, name=repo_name, url=url)
+    repo = GithubRepository(
+        user_id=user_id,
+        name=repo_name,
+        url=url,
+        repository_language=stats_payload.repository_language,
+        topics=stats_payload.topics,
+        forks_count=stats_payload.forks_count,
+        stargazers_count=stats_payload.stargazers_count,
+        subscribers_count=stats_payload.subscribers_count,
+        open_issues_count=stats_payload.open_issues_count,
+    )
+
     session.add(repo)
     session.commit()
     session.refresh(repo)
@@ -531,11 +586,132 @@ async def get_all_frameworks(session: Session) -> Sequence[Framework]:
     return session.exec(select(Framework)).all()
 
 
+async def get_dashboard_stats(session: Session, user_id: str) -> dict:
+    """
+    Retrieve the dashboard statistics for a user.
+    This includes the total number of stars, forks, issues, and repositories,
+    as well as the top 5 languages and top 5 repositories.
+
+    Parameters:
+        session (Session): The database session.
+        user_id (str): The ID of the user to retrieve the statistics for.
+
+    Returns:
+        dict: A dictionary containing the dashboard statistics.
+    """
+    stmt = select(GithubRepository).where(GithubRepository.user_id == user_id)
+    repos = session.exec(stmt).all()
+
+    if not repos:
+        return {
+            "kpi": {
+                "total_stars": 0,
+                "total_forks": 0,
+                "total_issues": 0,
+                "total_repos": 0,
+                "total_subscribers": 0,
+            },
+            "charts": {"languages": [], "top_repos": []},
+        }
+
+    total_stars = sum(r.stargazers_count for r in repos)
+    total_forks = sum(r.forks_count for r in repos)
+    total_issues = sum(r.open_issues_count for r in repos)
+    total_subscribers = sum(r.subscribers_count for r in repos)
+    total_repos = len(repos)
+
+    language_map = {}
+    for r in repos:
+        lang = r.repository_language or "Unknown"
+        language_map[lang] = language_map.get(lang, 0) + 1
+
+    language_distribution = [{"name": k, "value": v} for k, v in language_map.items()]
+    language_distribution.sort(key=lambda x: x["value"], reverse=True)
+
+    sorted_by_stars = sorted(repos, key=lambda r: r.stargazers_count, reverse=True)
+    top_5_repos = sorted_by_stars[:5]
+
+    top_repos_data = [
+        {
+            "name": r.name,
+            "stars": r.stargazers_count,
+            "forks": r.forks_count,
+            "issues": r.open_issues_count,
+        }
+        for r in top_5_repos
+    ]
+
+    return {
+        "kpi": {
+            "total_stars": total_stars,
+            "total_forks": total_forks,
+            "total_issues": total_issues,
+            "total_repos": total_repos,
+            "total_subscribers": total_subscribers,
+        },
+        "charts": {"languages": language_distribution, "top_repos": top_repos_data},
+    }
+
+
+async def get_global_platform_stats(session: Session) -> dict:
+    """
+    Retrieve statistics across the ENTIRE database (All users, all repos).
+    This includes the total number of stars, forks, issues, and repositories,
+    as well as the top 5 languages and top 5 repositories.
+
+    Parameters:
+        session (Session): The database session.
+
+    Returns:
+        dict: A dictionary containing the global platform statistics.
+    """
+    stmt = select(
+        func.sum(col(GithubRepository.stargazers_count)),
+        func.sum(col(GithubRepository.forks_count)),
+        func.count(col(GithubRepository.id)),
+        func.sum(col(GithubRepository.open_issues_count)),
+    )
+
+    row = session.exec(stmt).first()
+
+    if not row:
+        total_stars = total_forks = total_repos = total_issues = 0
+    else:
+        total_stars, total_forks, total_repos, total_issues = row
+
+    lang_stmt = (
+        select(
+            GithubRepository.repository_language, func.count(col(GithubRepository.id))
+        )
+        .where(col(GithubRepository.repository_language).is_not(None))
+        .group_by(col(GithubRepository.repository_language))
+        .order_by(func.count(col(GithubRepository.id)).desc())
+        .limit(5)
+    )
+    top_languages = session.exec(lang_stmt).all()
+
+    return {
+        "kpi": {
+            "platform_stars": total_stars or 0,
+            "platform_forks": total_forks or 0,
+            "platform_repos": total_repos or 0,
+            "platform_issues": total_issues or 0,
+        },
+        "top_languages": [
+            {"name": lang, "count": count} for lang, count in top_languages
+        ],
+    }
+
+
 ### GraphQL
 async def get_all_local_repos_hydrated(
     session: Session,
     token: str,
     limit: int = 20,
+    search: str | None = None,
+    skills: list[str] | None = None,
+    apu_id: str | None = None,
+    github_username: str | None = None,
     cursor: str | None = None,  # TIMESTAMP|ID
 ) -> dict:
     """
@@ -545,32 +721,47 @@ async def get_all_local_repos_hydrated(
         session (Session): Database session used to persist changes.
         token (str): The GitHub access token used to fetch the repositories.
         limit (int): The maximum number of repositories to fetch.
+        search (str | None): The search query to filter repositories.
+        skills (list[str] | None): The list of skills to filter repositories.
+        apu_id (str | None): The APU ID of the owner to filter repositories.
+        github_username (str | None): The GitHub username of the owner to filter repositories.
         cursor (str | None): The 'endCursor' from the previous response to fetch the next page.
 
     Returns:
         dict: A dictionary containing the hydrated repositories and the next cursor.
     """
-    statement = (
-        select(GithubRepository)
-        .options(
-            selectinload(GithubRepository.user)  # type: ignore
+    query = select(GithubRepository).join(User)
+
+    if search:
+        query = query.where(col(GithubRepository.name).ilike(f"%{search}%"))
+
+    if apu_id:
+        query = query.where(User.apu_id == apu_id)
+
+    if github_username:
+        query = query.where(User.github_username == github_username)
+
+    if skills:
+        query = query.where(
+            or_(
+                GithubRepository.programming_languages.any(  # type: ignore
+                    col(ProgrammingLanguage.name).in_(skills)
+                ),
+                GithubRepository.frameworks.any(  # type: ignore
+                    col(Framework.name).in_(skills)
+                ),
+            )
         )
-        .order_by(
-            col(GithubRepository.created_at).desc(), col(GithubRepository.id).desc()
-        )
-        .limit(limit)
-    )
-    logger.debug(f"Repository Query: {statement}")
 
     if cursor:
         try:
-            # Split the composite cursor: "2023-01-01T12:00:00|cl..."
+            # Split: "2023-01-01T12:00:00|cl..."
             cursor_time_str, cursor_id = cursor.split("|")
             cursor_time = datetime.fromisoformat(cursor_time_str)
 
-            # Logic: Give me items OLDER than cursor_time...
-            # ... OR items with SAME time but SMALLER (lexicographically) ID
-            statement = statement.where(
+            # Logic: Give me items OLDER than cursor_time (created before)...
+            # ... OR items created at the SAME time but with a smaller ID
+            query = query.where(
                 or_(
                     col(GithubRepository.created_at) < cursor_time,
                     and_(
@@ -579,32 +770,37 @@ async def get_all_local_repos_hydrated(
                     ),
                 )
             )
-            logger.debug(f"Repository Query with cursor: {statement}")
         except ValueError:
-            logger.warning(f"Invalid cursor: {cursor}")
+            logger.warning(f"Invalid cursor format: {cursor}")
             pass
+
+    query = query.order_by(col(GithubRepository.created_at).desc())
+    query = query.order_by(col(GithubRepository.id).desc())
+
+    statement = (
+        query.options(selectinload(GithubRepository.user))  # type: ignore
+        .options(selectinload(GithubRepository.programming_languages))  # type: ignore
+        .options(selectinload(GithubRepository.frameworks))  # type: ignore
+        .limit(limit)
+    )
+
+    logger.debug(f"Repository Query: {statement}")
 
     db_repos = session.exec(statement).all()
 
     if not db_repos:
-        logger.debug("No repositories found")
         return {"items": [], "next_cursor": None}
 
     next_cursor = None
     if len(db_repos) == limit:
         last_repo = db_repos[-1]
-        # combine time and id into one string
         next_cursor = f"{last_repo.created_at.isoformat()}|{last_repo.id}"
-        logger.debug(f"Next cursor: {next_cursor}")
 
-    # We use "Aliases" (repo_0, repo_1) to ask for multiple distinct items in one request
     query_fragments = []
-
     for index, repo in enumerate(db_repos):
         owner = repo.user.github_username
         name = repo.name
 
-        # We alias the query so we can tell which result belongs to which repo
         fragment = f"""
         repo_{index}: repository(owner: "{owner}", name: "{name}") {{
             name
@@ -624,7 +820,6 @@ async def get_all_local_repos_hydrated(
             }}
         }}
         """
-        logger.debug(f"Query Fragment: {fragment}")
         query_fragments.append(fragment)
 
     full_query = f"query {{ {' '.join(query_fragments)} }}"
@@ -643,8 +838,6 @@ async def get_all_local_repos_hydrated(
         validate_github_response(response)
 
         result = response.json()
-        logger.debug(f"GraphQL Response: {result}")
-
         hydrated_repos = []
         data = result.get("data", {}) or {}
 
@@ -652,19 +845,20 @@ async def get_all_local_repos_hydrated(
             key = f"repo_{index}"
             gh_data = data.get(key)
 
-            # If gh_data is None, the repo might have been deleted on GitHub
-            # or permissions were lost. Handle gracefully.
             if gh_data:
-                # Combine DB ID with live GitHub Data
                 hydrated_repos.append(
                     {
-                        "id": db_repo.id,  # Internal DB ID
-                        "db_owner": db_repo.user.github_username,  # Internal Owner
-                        **gh_data,  # Spread the GitHub data (name, stars, collaborators, etc)
+                        "db_repo_id": db_repo.id,
+                        "db_repo_description": db_repo.description,
+                        "db_repo_skills": db_repo.skill_names,
+                        "db_owner_id": db_repo.user.id,
+                        "db_owner_first_name": db_repo.user.first_name,
+                        "db_owner_last_name": db_repo.user.last_name,
+                        "db_owner_apu_id": db_repo.user.apu_id,
+                        **gh_data,
                     }
                 )
 
-        logger.debug(f"Hydrated Repos: {hydrated_repos}")
         return {"items": hydrated_repos, "next_cursor": next_cursor}
 
 
