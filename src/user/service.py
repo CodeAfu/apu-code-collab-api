@@ -1,6 +1,6 @@
 from typing import Sequence
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
@@ -11,6 +11,8 @@ from src.exceptions import (
     InvalidPasswordException,
 )
 from src.user.models import CreateUserRequest, UpdateUserProfileRequest
+from src.entities.programming_language import ProgrammingLanguage
+from src.entities.framework import Framework
 from src.utils import security
 from src.exceptions import ConflictException, InternalException
 
@@ -234,7 +236,7 @@ def create_user(session: Session, request: CreateUserRequest) -> User:
         raise InternalException("Failed to create user")
 
 
-def delete_user(session: Session, user_id: str) -> User:
+async def delete_user(session: Session, user_id: str) -> User:
     """
     Permanently remove a user from the database.
 
@@ -255,5 +257,80 @@ def delete_user(session: Session, user_id: str) -> User:
 
     session.delete(user)
     session.commit()
+
+    return user
+
+
+async def persist_preferences(
+    session: Session,
+    user: User,
+    req_programming_languages: list[str] | None,
+    req_frameworks: list[str] | None,
+) -> User:
+    """
+    Persist the user's preferred programming languages and frameworks.
+
+    This function does not override existing user data.
+    If you wish to override user's existing data, use the admin endpoints.
+
+    Parameters:
+        session (Session): The database session.
+        user (User): The user to update.
+        req_programming_languages (list[str]): The list of programming languages to add to the user's preferences.
+        req_frameworks (list[str]): The list of frameworks to add to the user's preferences.
+
+    Returns:
+        User: The updated user entity.
+    """
+    target_langs = {
+        name.strip() for name in (req_programming_languages or []) if name.strip()
+    }
+    target_fworks = {name.strip() for name in (req_frameworks or []) if name.strip()}
+
+    existing_langs = []
+    if target_langs:
+        stmt = select(ProgrammingLanguage).where(
+            col(ProgrammingLanguage.name).in_(target_langs)
+        )
+        existing_langs = session.exec(stmt).all()
+
+    existing_fworks = []
+    if target_fworks:
+        stmt = select(Framework).where(col(Framework.name).in_(target_fworks))
+        existing_fworks = session.exec(stmt).all()
+
+    lang_map = {lang.name.lower(): lang for lang in existing_langs}
+    final_languages = []
+
+    for name in target_langs:
+        lower_name = name.lower()
+        if lower_name in lang_map:
+            final_languages.append(lang_map[lower_name])
+        else:
+            new_lang = ProgrammingLanguage(name=name, added_by=user.id)
+            session.add(new_lang)
+            final_languages.append(new_lang)
+            # Add to map to prevent duplicates if user sent ["Python", "python"]
+            lang_map[lower_name] = new_lang
+
+    fwork_map = {f.name.lower(): f for f in existing_fworks}
+    final_frameworks = []
+
+    for name in target_fworks:
+        lower_name = name.lower()
+        if lower_name in fwork_map:
+            final_frameworks.append(fwork_map[lower_name])
+        else:
+            new_fwork = Framework(name=name, added_by=user.id)
+            session.add(new_fwork)
+            final_frameworks.append(new_fwork)
+            fwork_map[lower_name] = new_fwork
+
+    user.preferred_programming_languages = final_languages
+    user.preferred_frameworks = final_frameworks
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
 
     return user

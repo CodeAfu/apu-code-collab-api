@@ -1,11 +1,17 @@
 # Requests
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
-from src.entities.user import UserRole, CourseYear
-from src.entities.university_course import UniversityCourse
 from src.entities.github_repository import GithubRepository
+from src.entities.university_course import UniversityCourse
+from src.entities.user import CourseYear, UserRole
+
+
+class SkillRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str
 
 
 class UserReadResponse(BaseModel):
@@ -28,9 +34,16 @@ class UserReadResponse(BaseModel):
     # FK
     university_course: UniversityCourse | None
     github_repositories: list[GithubRepository] | None
+    preferred_programming_languages: list[SkillRead] | None
+    preferred_frameworks: list[SkillRead] | None
 
     created_at: datetime
     updated_at: datetime
+
+
+class PersistPreferencesRequest(BaseModel):
+    programming_languages: list[str] | None = None
+    frameworks: list[str] | None = None
 
 
 class UpdateUserProfileRequest(BaseModel):

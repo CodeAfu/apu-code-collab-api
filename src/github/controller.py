@@ -9,11 +9,14 @@ from fastapi import (
     status,
 )
 from loguru import logger
+from typing import Sequence
 from sqlmodel import Session
 
 from src.auth import service as auth_service
 from src.database.core import get_session
+from src.entities.framework import Framework
 from src.entities.github_repository import GithubRepository
+from src.entities.programming_language import ProgrammingLanguage
 from src.github import service as github_service
 from src.github.models import AddSkillsRequest, UpdateRepoDescriptionRequest
 from src.rate_limiter import limiter
@@ -336,3 +339,45 @@ async def get_all_skills(
         dict: A paginated response containing the user's skills.
     """
     return await github_service.get_all_skills(session)
+
+
+@github_router.get("/repos/programming_languages")
+@limiter.limit("15/minute")
+async def get_all_programming_languages(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+) -> Sequence[ProgrammingLanguage]:
+    """
+    Retrieve the full list of programming languages for a github repository.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+
+    Returns:
+        Sequence[ProgrammingLanguage]: A list of programming languages.
+    """
+    return await github_service.get_all_programming_languages(session)
+
+
+@github_router.get("/repos/frameworks")
+@limiter.limit("15/minute")
+async def get_all_frameworks(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+) -> Sequence[Framework]:
+    """
+    Retrieve the full list of frameworks for a github repository.
+
+    This endpoint requires the user to have a valid GitHub access token.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+
+    Returns:
+        Sequence[Framework]: A list of frameworks.
+    """
+    return await github_service.get_all_frameworks(session)
