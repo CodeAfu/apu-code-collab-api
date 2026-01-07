@@ -33,19 +33,15 @@ user_router = APIRouter(
 )
 async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
     """
-    Retrieve a list of all users in the system.
+    Retrieve a list of all users.
 
-    This endpoint is restricted to development environments only. Attempting to access
-    it in production will result in a 403 Forbidden error.
+    This endpoint does not require any authentication.
 
     Parameters:
         session (Session): The database session dependency.
 
     Returns:
-        Sequence[User]: A list of all user objects stored in the database.
-
-    Raises:
-        HTTPException(403): If the application is running in a non-development environment.
+        list[User]: A list of all users.
     """
     # TODO: Protect this better
     if not settings.is_development:
@@ -217,7 +213,10 @@ async def link_github_account(
     """
     Link the authenticated user's GitHub account to their local user record.
 
-    This exchanges the provided GitHub OAuth code for an access token, retrieves the GitHub profile, stores GitHub-related fields (access token, GitHub ID, username, and avatar URL) on the authenticated user, and persists those changes to the database.
+    This exchanges the provided GitHub OAuth code for an access token,
+    retrieves the GitHub profile, stores GitHub-related fields
+    (access token, GitHub ID, username, and avatar URL) on the authenticated user,
+    and persists those changes to the database.
 
     Parameters:
         payload (GitHubLinkRequest): Payload containing the GitHub OAuth `code` to exchange for an access token.
@@ -259,7 +258,8 @@ async def unlink_github_account(
     """
     Unlink the authenticated user's GitHub account from their local user record.
 
-    This removes the GitHub-related fields (access token, GitHub ID, username, and avatar URL) from the authenticated user, and persists those changes to the database.
+    This removes the GitHub-related fields (access token, GitHub ID, username, and avatar URL)
+    from the authenticated user, and persists those changes to the database.
 
     Parameters:
         user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be unlinked.
