@@ -630,10 +630,10 @@ async def get_dashboard_stats(session: Session, user_id: str) -> dict:
             "charts": {"languages": [], "top_repos": []},
         }
 
-    total_stars = sum(r.stargazers_count for r in repos)
-    total_forks = sum(r.forks_count for r in repos)
-    total_issues = sum(r.open_issues_count for r in repos)
-    total_subscribers = sum(r.subscribers_count for r in repos)
+    total_stars = sum((r.stargazers_count or 0) for r in repos)
+    total_forks = sum((r.forks_count or 0) for r in repos)
+    total_issues = sum((r.open_issues_count or 0) for r in repos)
+    total_subscribers = sum((r.subscribers_count or 0) for r in repos)
     total_repos = len(repos)
 
     language_map = {}
@@ -644,15 +644,17 @@ async def get_dashboard_stats(session: Session, user_id: str) -> dict:
     language_distribution = [{"name": k, "value": v} for k, v in language_map.items()]
     language_distribution.sort(key=lambda x: x["value"], reverse=True)
 
-    sorted_by_stars = sorted(repos, key=lambda r: r.stargazers_count, reverse=True)
+    sorted_by_stars = sorted(
+        repos, key=lambda r: (r.stargazers_count or 0), reverse=True
+    )
     top_5_repos = sorted_by_stars[:5]
 
     top_repos_data = [
         {
             "name": r.name,
-            "stars": r.stargazers_count,
-            "forks": r.forks_count,
-            "issues": r.open_issues_count,
+            "stars": r.stargazers_count or 0,
+            "forks": r.forks_count or 0,
+            "issues": r.open_issues_count or 0,
         }
         for r in top_5_repos
     ]
