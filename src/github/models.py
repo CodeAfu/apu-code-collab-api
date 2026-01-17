@@ -6,7 +6,7 @@ class GitHubLinkRequest(BaseModel):
 
 
 class GithubRepositoryStatsPayload(BaseModel):
-    repository_language: str
+    repository_language: str | None = None
     topics: list[str]
     forks_count: int
     stargazers_count: int
