@@ -9,7 +9,9 @@ from src.config import settings
 from src.database.core import init_db
 from src.github.controller import github_router
 from src.user.controller import user_router
-from src.university_courses.controller import university_course_router
+from src.university_courses.controller import course_router
+from src.programming_languages.controller import plang_router
+from src.frameworks.controller import fwork_router
 
 openapi_tags = [
     {"name": "Users", "description": "User operations"},
@@ -17,6 +19,8 @@ openapi_tags = [
     {"name": "GitHub", "description": "GitHub API operations"},
     {"name": "University Courses", "description": "University course operations"},
     {"name": "Health Checks", "description": "Application health checks"},
+    {"name": "Programming Languages", "description": "Programming language operations"},
+    {"name": "Frameworks", "description": "Framework operations"},
 ]
 
 
@@ -39,7 +43,9 @@ def add_routes(app: FastAPI):
     app.include_router(user_router, tags=["Users"])
     app.include_router(auth_router, tags=["Authentication"])
     app.include_router(github_router, tags=["GitHub"])
-    app.include_router(university_course_router, tags=["University Courses"])
+    app.include_router(course_router, tags=["University Courses"])
+    app.include_router(plang_router, tags=["Programming Languages"])
+    app.include_router(fwork_router, tags=["Frameworks"])
 
     @app.get("/health", tags=["Health Checks"])
     async def health_check():

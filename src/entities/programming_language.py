@@ -14,9 +14,11 @@ cuid_gen = Cuid()
 class UserProgrammingLanguageLink(SQLModel, table=True):
     __tablename__ = "user_programming_language_links"  # type: ignore
 
-    user_id: str = SQLField(foreign_key="users.id", primary_key=True)
+    user_id: str = SQLField(
+        foreign_key="users.id", primary_key=True, ondelete="CASCADE"
+    )
     programming_language_id: str = SQLField(
-        foreign_key="programming_languages.id", primary_key=True
+        foreign_key="programming_languages.id", primary_key=True, ondelete="CASCADE"
     )
 
 

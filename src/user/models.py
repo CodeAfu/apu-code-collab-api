@@ -54,6 +54,11 @@ class UpdateUserProfileRequest(BaseModel):
     course_year: CourseYear | None = None
 
 
+class AdminUpdateUserRequest(UpdateUserProfileRequest):
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
 class RegisterUserRequest(BaseModel):
     apu_id: str
     password: str

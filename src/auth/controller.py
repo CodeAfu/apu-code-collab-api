@@ -22,7 +22,7 @@ auth_router = APIRouter(prefix="/api/v1/auth")
     status_code=status.HTTP_201_CREATED,
     response_model=CreateUserResponse,
 )
-@limiter.limit("5/hour")
+@limiter.limit("30/hour")
 async def register_user(
     request: Request,
     register_user_request: RegisterUserRequest,
