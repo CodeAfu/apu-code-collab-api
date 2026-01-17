@@ -19,7 +19,7 @@ class RefreshToken(SQLModel, table=True):
     __tablename__ = "refresh_tokens"  # type: ignore
 
     id: str = SQLField(default_factory=cuid_gen.generate, primary_key=True)
-    user_id: str = SQLField(foreign_key="users.id", index=True)
+    user_id: str = SQLField(foreign_key="users.id", index=True, ondelete="CASCADE")
     token: str = SQLField(index=True)
     revoked: bool = SQLField(default=False)
 

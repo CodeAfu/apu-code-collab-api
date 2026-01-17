@@ -3,6 +3,7 @@ from typing import Sequence
 from sqlmodel import Session, select, col
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException, status
 
 from src.entities.user import User
 from src.exceptions import (
@@ -10,11 +11,16 @@ from src.exceptions import (
     UserDoesNotExistException,
     InvalidPasswordException,
 )
-from src.user.models import CreateUserRequest, UpdateUserProfileRequest
+from src.user.models import (
+    CreateUserRequest,
+    UpdateUserProfileRequest,
+    AdminUpdateUserRequest,
+)
 from src.entities.programming_language import ProgrammingLanguage
 from src.entities.framework import Framework
 from src.utils import security
 from src.exceptions import ConflictException, InternalException
+from src.github import service as github_service
 
 
 def get_users(session: Session) -> Sequence[User]:
@@ -64,6 +70,20 @@ def get_user_by_email(session: Session, email: str) -> User | None:
         User | None: The user entity if found, otherwise None.
     """
     return session.exec(select(User).where(User.email == email)).first()
+
+
+def get_user_by_id(session: Session, user_id: str) -> User | None:
+    """
+    Retrieve a user by their unique ID.
+
+    Parameters:
+        session (Session): The database session.
+        user_id (str): The unique identifier (CUID) of the user.
+
+    Returns:
+        User | None: The user entity if found, otherwise None.
+    """
+    return session.exec(select(User).where(User.id == user_id)).first()
 
 
 def get_user_by_apu_id(session: Session, apu_id: str) -> User | None:
@@ -158,7 +178,11 @@ def update_user_profile(
     if user.last_name is None and request.last_name is not None:
         user.last_name = request.last_name
 
-    if user.email is None and request.email is not None:
+    if request.email is not None and request.email != user.email:
+        if not is_unique_email(session, request.email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Email is already in use."
+            )
         user.email = request.email
 
     if user.university_course_id is None and request.university_course is not None:
@@ -166,6 +190,63 @@ def update_user_profile(
 
     if user.course_year is None and request.course_year is not None:
         user.course_year = request.course_year
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+def admin_update_user_profile(
+    session: Session, user_id: str, request: AdminUpdateUserRequest
+) -> User:
+    """
+    Update a user's profile information.
+
+    This function does not override existing user data.
+    If you wish to override user's existing data, use the admin endpoints.
+
+    Parameters:
+        session (Session): The database session.
+        user_id (str): The ID of the user to update.
+        request (UpdateUserRequest): The updated user profile data.
+
+    Returns:
+        User: The updated user entity.
+
+    Raises:
+        HTTPException(409): If the email is already in use.
+    """
+    user = get_user_by_id(session, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if request.first_name is not None:
+        user.first_name = request.first_name
+
+    if request.last_name is not None:
+        user.last_name = request.last_name
+
+    if request.email is not None and request.email != user.email:
+        if not is_unique_email(session, request.email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Email is already in use."
+            )
+        user.email = request.email
+
+    if request.university_course is not None:
+        user.university_course_id = request.university_course.id
+
+    if request.course_year is not None:
+        user.course_year = request.course_year
+
+    if request.role is not None:
+        user.role = request.role
+
+    if request.is_active is not None:
+        user.is_active = request.is_active
 
     session.add(user)
     session.commit()
@@ -254,6 +335,10 @@ async def delete_user(session: Session, user_id: str) -> User:
 
     if not user:
         raise UserDoesNotExistException()
+
+    if user.github_access_token:
+        logger.info(f"Revoking GitHub token for user {user.id}...")
+        await github_service.revoke_access_token(user.github_access_token)
 
     session.delete(user)
     session.commit()

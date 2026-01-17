@@ -1,11 +1,10 @@
 from typing import Sequence
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, Path
 from sqlmodel import Session
 from loguru import logger
 
 from src.auth import service as auth_service
-from src.config import settings
 from src.database.core import get_session
 from src.entities.user import User
 from src.github.models import GitHubLinkRequest, PaginatedRepoResponse
@@ -18,6 +17,7 @@ from src.user.models import (
     UpdateUserProfileRequest,
     SkillRead,
     PersistPreferencesRequest,
+    AdminUpdateUserRequest,
 )
 
 user_router = APIRouter(
@@ -31,30 +31,60 @@ user_router = APIRouter(
     response_model_exclude_none=True,
     response_model_exclude={"password_hash", "github_access_token"},
 )
-async def get_users(session: Session = Depends(get_session)) -> Sequence[User]:
+async def get_users(
+    user: auth_service.CurrentActiveUser, session: Session = Depends(get_session)
+) -> Sequence[User]:
     """
     Retrieve a list of all users.
 
     This endpoint does not require any authentication.
 
     Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
         session (Session): The database session dependency.
 
     Returns:
         list[User]: A list of all users.
+
+    Raises:
+        HTTPException(403): If the user is not an admin.
     """
-    # TODO: Protect this better
-    if not settings.is_development:
+    if not user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "Invalid Permission",
-                "message": "You are not allowed to accesss this endpoint",
-            },
+            detail="You are not allowed to access this endpoint",
         )
 
     users = user_service.get_users(session)
     return users
+
+
+@user_router.get("/count")
+@limiter.limit("60/minute")
+async def get_user_count(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
+) -> int:
+    """
+    Retrieve the total number of users in the system.
+
+    Parameters:
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        session (Session): The database session dependency.
+
+    Returns:
+        int: The total number of users in the system.
+
+    Raises:
+        HTTPException(403): If the user is not an admin.
+    """
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to access this endpoint",
+        )
+    return len(user_service.get_users(session))
 
 
 @user_router.get(
@@ -112,7 +142,7 @@ async def get_user(
     response_model_exclude={"password_hash", "github_access_token"},
 )
 @limiter.limit("10/minute")
-async def update_user(
+async def update_my_user_profile(
     request: Request,
     user: auth_service.CurrentActiveUser,
     update_request: UpdateUserProfileRequest,
@@ -133,6 +163,55 @@ async def update_user(
         UserRead: The updated user object.
     """
     user = user_service.update_user_profile(session, user, update_request)
+    return UserReadResponse(
+        **user.model_dump(),
+        is_github_linked=bool(user.github_access_token),
+        university_course=user.university_course,
+    )
+
+
+@user_router.put(
+    "/{user_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=UserReadResponse,
+    response_model_exclude_none=True,
+    response_model_exclude={"password_hash", "github_access_token"},
+)
+@limiter.limit("10/minute")
+async def update_user_by_id(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    update_request: AdminUpdateUserRequest,
+    user_id: str = Path(description="The ID of the user to update."),
+    session: Session = Depends(get_session),
+) -> UserReadResponse:
+    """
+    Update a user's profile.
+
+    This endpoint does not override existing user data.
+    If you wish to override user's existing data, use the admin endpoints.
+
+    Parameters:
+        user_id (str): The ID of the user to update.
+        update_request (AdminUpdateUserRequest): The updated user profile data.
+        user (auth_service.CurrentActiveUser): The currently authenticated user.
+        session (Session): The database session dependency.
+
+    Returns:
+        UserRead: The updated user object.
+
+    Raises:
+        HTTPException(403): If the user is not an admin.
+        HTTPException(404): If no user is found with the provided ID.
+        HTTPException(409): If the email is already in use.
+    """
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to access this endpoint",
+        )
+
+    user = user_service.admin_update_user_profile(session, user_id, update_request)
     return UserReadResponse(
         **user.model_dump(),
         is_github_linked=bool(user.github_access_token),
@@ -182,7 +261,10 @@ async def create_user(
 )
 @limiter.limit("10/minute")
 async def delete_user(
-    request: Request, user_id: str, session: Session = Depends(get_session)
+    request: Request,
+    user_id: str,
+    user: auth_service.CurrentActiveUser,
+    session: Session = Depends(get_session),
 ):
     """
     Delete a user from the system by their unique ID.
@@ -195,8 +277,15 @@ async def delete_user(
         User: The user object that was deleted.
 
     Raises:
+        HTTPException(403): If the user is not an admin.
         HTTPException(404): If no user is found with the provided ID.
     """
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to access this endpoint",
+        )
+
     return user_service.delete_user(session, user_id)
 
 
@@ -250,7 +339,7 @@ async def link_github_account(
     response_model_exclude_none=True,
 )
 @limiter.limit("10/minute")
-async def unlink_github_account(
+async def unlink_my_github_account(
     request: Request,
     user: auth_service.CurrentActiveUser,
     session: Session = Depends(get_session),
@@ -282,6 +371,71 @@ async def unlink_github_account(
     session.refresh(user)
 
     logger.info(f"User {user.id} unlinked GitHub account successfully")
+
+    return {"message": "GitHub account unlinked successfully"}
+
+
+@user_router.get(
+    "/{user_id}/github/unlink",
+    status_code=status.HTTP_200_OK,
+    response_model=dict,
+    response_model_exclude_none=True,
+)
+@limiter.limit("10/minute")
+async def unlink_github_account_by_id(
+    request: Request,
+    user: auth_service.CurrentActiveUser,
+    user_id: str = Path(
+        description="The ID of the user whose GitHub account will be unlinked."
+    ),
+    session: Session = Depends(get_session),
+):
+    """
+    Unlink the authenticated user's GitHub account from their local user record.
+
+    This removes the GitHub-related fields (access token, GitHub ID, username, and avatar URL)
+    from the selected user, and persists those changes to the database.
+
+    Parameters:
+        user_id (str): The ID of the user whose GitHub account will be unlinked.
+        user (auth_service.CurrentActiveUser): The currently authenticated user whose account will be unlinked.
+        session (Session): The database session dependency.
+
+    Returns:
+        dict: A message confirming successful unlinking, e.g. `{"message": "GitHub account unlinked successfully"}`.
+
+    Raises:
+        HTTPException(403): If the user is not an admin.
+        HTTPException(404): If no user is found with the provided ID.
+        HTTPException(401): If the user is not authenticated.
+    """
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to access this endpoint",
+        )
+
+    db_user = user_service.get_user_by_id(session, user_id)
+    if db_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    if db_user.github_access_token:
+        logger.info(f"Revoking GitHub token for user {db_user.id}...")
+        await github_service.revoke_access_token(db_user.github_access_token)
+
+    db_user.github_access_token = None
+    db_user.github_id = None
+    db_user.github_username = None
+    db_user.github_avatar_url = None
+
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+
+    logger.info(f"User {db_user.id} unlinked GitHub account successfully")
 
     return {"message": "GitHub account unlinked successfully"}
 

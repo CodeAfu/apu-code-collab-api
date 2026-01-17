@@ -73,8 +73,12 @@ class User(SQLModel, table=True):
         default_factory=datetime.now, sa_column=Column(DateTime(timezone=True))
     )
 
-    refresh_tokens: list["RefreshToken"] = Relationship(back_populates="user")
-    github_repositories: list["GithubRepository"] = Relationship(back_populates="user")
+    refresh_tokens: list["RefreshToken"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+    github_repositories: list["GithubRepository"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
     university_course: "UniversityCourse" = Relationship(back_populates="users")
     preferred_programming_languages: list["ProgrammingLanguage"] = Relationship(
         back_populates="users",
@@ -96,3 +100,7 @@ class User(SQLModel, table=True):
             #     values["role"] = UserRole.TEACHER
 
         return values
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == UserRole.ADMIN

@@ -17,7 +17,7 @@ class GithubRepositoryFrameworkLink(SQLModel, table=True):
     __tablename__ = "github_repository_framework_links"  # type: ignore
 
     repository_id: str = SQLField(
-        foreign_key="github_repositories.id", primary_key=True
+        foreign_key="github_repositories.id", primary_key=True, ondelete="CASCADE"
     )
     framework_id: str = SQLField(foreign_key="frameworks.id", primary_key=True)
 
@@ -26,7 +26,7 @@ class GithubRepositoryProgrammingLanguageLink(SQLModel, table=True):
     __tablename__ = "github_repository_programming_language_links"  # type: ignore
 
     repository_id: str = SQLField(
-        foreign_key="github_repositories.id", primary_key=True
+        foreign_key="github_repositories.id", primary_key=True, ondelete="CASCADE"
     )
     programming_language_id: str = SQLField(
         foreign_key="programming_languages.id", primary_key=True
@@ -39,7 +39,7 @@ class GithubRepository(SQLModel, table=True):
 
     # Required fields for initialization
     id: str = SQLField(default_factory=cuid_gen.generate, primary_key=True)
-    user_id: str = SQLField(foreign_key="users.id", index=True)
+    user_id: str = SQLField(foreign_key="users.id", index=True, ondelete="CASCADE")
     name: str = SQLField(min_length=1, max_length=50, index=True)
     url: str = SQLField(unique=True, min_length=1, max_length=200)
 

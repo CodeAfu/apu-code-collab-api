@@ -16,8 +16,16 @@ cuid_gen = Cuid()
 class UserFrameworkLink(SQLModel, table=True):
     __tablename__ = "user_framework_links"  # type: ignore
 
-    user_id: str = SQLField(foreign_key="users.id", primary_key=True)
-    framework_id: str = SQLField(foreign_key="frameworks.id", primary_key=True)
+    user_id: str = SQLField(
+        foreign_key="users.id",
+        primary_key=True,
+        ondelete="CASCADE",
+    )
+    framework_id: str = SQLField(
+        foreign_key="frameworks.id",
+        primary_key=True,
+        ondelete="CASCADE",
+    )
 
 
 class Framework(SQLModel, table=True):
