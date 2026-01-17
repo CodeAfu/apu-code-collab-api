@@ -286,7 +286,7 @@ async def delete_user(
             detail="You are not allowed to access this endpoint",
         )
 
-    return user_service.delete_user(session, user_id)
+    return await user_service.delete_user(session, user_id)
 
 
 @user_router.post(

@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from loguru import logger
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql import case, literal
 from sqlmodel import Session, col, select
 
 from src.config import settings
@@ -706,7 +707,7 @@ async def get_global_platform_stats(session: Session) -> dict:
 ### GraphQL
 async def get_all_local_repos_hydrated(
     session: Session,
-    token: str,
+    user: User,
     limit: int = 20,
     search: str | None = None,
     skills: list[str] | None = None,
@@ -719,7 +720,7 @@ async def get_all_local_repos_hydrated(
 
     Parameters:
         session (Session): Database session used to persist changes.
-        token (str): The GitHub access token used to fetch the repositories.
+        user (User): The authenticated user.
         limit (int): The maximum number of repositories to fetch.
         search (str | None): The search query to filter repositories.
         skills (list[str] | None): The list of skills to filter repositories.
@@ -732,15 +733,29 @@ async def get_all_local_repos_hydrated(
     """
     query = select(GithubRepository).join(User)
 
+    user_lang_ids = [pl.id for pl in user.preferred_programming_languages]
+    user_fw_ids = [fw.id for fw in user.preferred_frameworks]
+    has_preferences = bool(user_lang_ids or user_fw_ids)
+
+    # Define the "Relevance Score" expression (1 = Match, 0 = No Match)
+    if has_preferences:
+        match_lang = GithubRepository.programming_languages.any(  # type: ignore
+            col(ProgrammingLanguage.id).in_(user_lang_ids)
+        )
+        match_fw = GithubRepository.frameworks.any(  # type: ignore
+            col(Framework.id).in_(user_fw_ids)
+        )
+        # CASE WHEN (match_lang OR match_fw) THEN 1 ELSE 0 END
+        relevance_score = case((or_(match_lang, match_fw), 1), else_=0)
+    else:
+        relevance_score = literal(0)
+
     if search:
         query = query.where(col(GithubRepository.name).ilike(f"%{search}%"))
-
     if apu_id:
         query = query.where(User.apu_id == apu_id)
-
     if github_username:
         query = query.where(User.github_username == github_username)
-
     if skills:
         query = query.where(
             or_(
@@ -755,25 +770,44 @@ async def get_all_local_repos_hydrated(
 
     if cursor:
         try:
-            # Split: "2023-01-01T12:00:00|cl..."
-            cursor_time_str, cursor_id = cursor.split("|")
-            cursor_time = datetime.fromisoformat(cursor_time_str)
+            # Split: "1|2023-01-01T12:00:00|abc..."
+            parts = cursor.split("|")
 
-            # Logic: Give me items OLDER than cursor_time (created before)...
-            # ... OR items created at the SAME time but with a smaller ID
+            # Fallback for old cursors or if logic changes
+            if len(parts) == 3:
+                c_score = int(parts[0])
+                c_time_str = parts[1]
+                c_id = parts[2]
+            else:
+                # Handle legacy 2-part cursor (assume score 0 to reset)
+                c_score = 0
+                c_time_str = parts[0]
+                c_id = parts[1]
+
+            c_time = datetime.fromisoformat(c_time_str)
+
+            # Complex Pagination Logic for (Score DESC, Time DESC, ID DESC)
+            # 1. Score is LOWER (came after in sort)
+            # 2. OR Score is SAME, but Time is OLDER
+            # 3. OR Score is SAME, Time is SAME, but ID is SMALLER
             query = query.where(
                 or_(
-                    col(GithubRepository.created_at) < cursor_time,
+                    relevance_score < c_score,
                     and_(
-                        col(GithubRepository.created_at) == cursor_time,
-                        col(GithubRepository.id) < cursor_id,
+                        relevance_score == c_score,
+                        col(GithubRepository.created_at) < c_time,
+                    ),
+                    and_(
+                        relevance_score == c_score,
+                        col(GithubRepository.created_at) == c_time,
+                        col(GithubRepository.id) < c_id,
                     ),
                 )
             )
-        except ValueError:
+        except (ValueError, IndexError):
             logger.warning(f"Invalid cursor format: {cursor}")
-            pass
 
+    query = query.order_by(relevance_score.desc())
     query = query.order_by(col(GithubRepository.created_at).desc())
     query = query.order_by(col(GithubRepository.id).desc())
 
@@ -794,7 +828,20 @@ async def get_all_local_repos_hydrated(
     next_cursor = None
     if len(db_repos) == limit:
         last_repo = db_repos[-1]
-        next_cursor = f"{last_repo.created_at.isoformat()}|{last_repo.id}"
+        # Recalculate score in Python for the cursor string
+        # (Faster than selecting it explicitly in tuple)
+        l_score = 0
+        if has_preferences:
+            repo_skill_ids = {s.id for s in last_repo.programming_languages}
+            repo_fw_ids = {f.id for f in last_repo.frameworks}
+
+            # Check intersection
+            if (not repo_skill_ids.isdisjoint(user_lang_ids)) or (
+                not repo_fw_ids.isdisjoint(user_fw_ids)
+            ):
+                l_score = 1
+
+        next_cursor = f"{l_score}|{last_repo.created_at.isoformat()}|{last_repo.id}"
 
     query_fragments = []
     for index, repo in enumerate(db_repos):
@@ -826,7 +873,7 @@ async def get_all_local_repos_hydrated(
 
     url = "https://api.github.com/graphql"
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {user.github_access_token}",
         "Accept": "application/vnd.github+json",
         "User-Agent": "apu-code-collab-api/1.0",
         "X-GitHub-Api-Version": "2022-11-28",

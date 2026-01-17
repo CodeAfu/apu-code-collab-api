@@ -70,7 +70,7 @@ async def get_local_repos(
     # Pass the pagination params to the service
     return await github_service.get_all_local_repos_hydrated(
         session,
-        user.github_access_token,
+        user,
         size,
         search,
         skills,
