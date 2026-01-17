@@ -361,6 +361,8 @@ async def unlink_my_github_account(
         logger.info(f"Revoking GitHub token for user {user.id}...")
         await github_service.revoke_access_token(user.github_access_token)
 
+    github_service.remove_repos_from_user(session, user)
+
     user.github_access_token = None
     user.github_id = None
     user.github_username = None
@@ -425,6 +427,8 @@ async def unlink_github_account_by_id(
     if db_user.github_access_token:
         logger.info(f"Revoking GitHub token for user {db_user.id}...")
         await github_service.revoke_access_token(db_user.github_access_token)
+
+    github_service.remove_repos_from_user(session, db_user)
 
     db_user.github_access_token = None
     db_user.github_id = None

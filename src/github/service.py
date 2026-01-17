@@ -401,6 +401,21 @@ async def revoke_access_token(access_token: str) -> None:
         logger.error(f"Network error while revoking GitHub token: {str(e)}")
 
 
+def remove_repos_from_user(session: Session, user: User) -> None:
+    """
+    Remove all repositories from a user.
+
+    Parameters:
+        session (Session): Database session used to persist changes.
+        user (User): The user to remove repositories from.
+    """
+    repos = session.exec(
+        select(GithubRepository).where(GithubRepository.user_id == user.id)
+    ).all()
+    for repo in repos:
+        session.delete(repo)
+
+
 async def fetch_user_repos(access_token: str, page: int, size: int) -> dict:
     """
     Fetch a paginated list of repositories for the authenticated user.
