@@ -357,9 +357,6 @@ async def revoke_access_token(access_token: str) -> None:
 
     Parameters:
         access_token (str): The access token to revoke.
-
-    Returns:
-        None
     """
     url = f"https://api.github.com/applications/{settings.GITHUB_CLIENT_ID}/grant"
 
@@ -824,7 +821,8 @@ async def get_all_local_repos_hydrated(
         except (ValueError, IndexError):
             logger.warning(f"Invalid cursor format: {cursor}")
 
-    query = query.order_by(relevance_score.desc())
+    if has_preferences:
+        query = query.order_by(relevance_score.desc())
     query = query.order_by(col(GithubRepository.created_at).desc())
     query = query.order_by(col(GithubRepository.id).desc())
 
